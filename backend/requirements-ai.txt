@@ -1,0 +1,18 @@
+# Nurse Amma — Optional AI and Speech Dependencies
+
+-r requirements.txt
+
+# Transformer models and NLP
+transformers>=4.45,<6.0
+torch>=2.4
+sentence-transformers>=3.1,<6.0
+
+# Advanced OCR
+paddleocr>=2.9,<4.0
+paddlepaddle>=2.6
+
+# Speech-to-text
+openai-whisper>=20240930
+
+# Optional: structured data validation is already provided
+# by Pydantic in requirements.txt

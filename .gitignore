@@ -1,0 +1,102 @@
+# Nurse Amma - Git Ignore
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Python virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Python packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+wheels/
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# Type checking and linting
+.mypy_cache/
+.pyright/
+.ruff_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Logs and temporary files
+*.log
+logs/
+tmp/
+temp/
+
+# Uploaded documents and patient data
+uploads/
+data/patients/
+patient_data/
+medical_records/
+*.dcm
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# AI models and large generated files
+models/
+checkpoints/
+weights/
+*.pt
+*.pth
+*.onnx
+*.safetensors
+
+# Frontend dependencies
+frontend/node_modules/
+
+# Frontend build output
+frontend/dist/
+frontend/build/
+
+# Frontend environment files
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+# Editor and IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local uploads and generated reports
+reports/generated/
+artifacts/
+
+# Keep essential project files tracked
+!README.md
+!requirements.txt
+!package.json
+!package-lock.json
