@@ -1,9 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
+from app.db.session import engine
 from app.routers import clinical_history, consultations, patients
 
-# Initialize FastAPI app with Nurse Amma metadata
+
+# Initialize FastAPI app with Nurse Amma metadata.
 app = FastAPI(
     title="Nurse Amma API",
     description=(
@@ -15,7 +20,8 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# Configure CORS for the React/TypeScript frontend
+
+# Configure CORS for the React/TypeScript frontend.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -27,13 +33,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Member 1: Clinical History Engine
+
+# Member 1: Clinical History Engine.
 app.include_router(clinical_history.router)
 
-# Member 3: Patient Management
+# Member 3: Patient Management.
 app.include_router(patients.router)
 
-# Member 3: Consultation Management
+# Member 3: Consultation Management.
 app.include_router(consultations.router)
 
 # Member 2: Document Intelligence will be registered
@@ -52,13 +59,36 @@ async def root():
 
 
 @app.get("/health", tags=["Health Check"])
-async def health_check():
-    """Return the current application status."""
+def health_check():
+    """Check API health and actual database connectivity."""
+
+    try:
+        # Execute a lightweight query against the configured database.
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+
+        database_status = "connected"
+
+    except SQLAlchemyError:
+        # Do not expose database credentials or internal error details.
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unhealthy",
+                "database": "disconnected",
+                "modules": {
+                    "clinical_history": "registered",
+                    "patient_management": "registered",
+                    "consultation_management": "registered",
+                    "document_intelligence": "pending_integration",
+                    "doctor_dashboard": "pending_integration",
+                },
+            },
+        )
+
     return {
         "status": "healthy",
-        # This is still a placeholder until a real database
-        # connectivity check is implemented.
-        "database": "connected",
+        "database": database_status,
         "modules": {
             "clinical_history": "active",
             "patient_management": "active",

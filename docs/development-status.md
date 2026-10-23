@@ -484,3 +484,31 @@ The next functional checkpoint is reached when the health endpoint correctly rep
 The overall integration checkpoint will require the clinical-history and document-intelligence modules to work with the shared database and appear together in the doctor dashboard.
 
 **Primary success criterion:** a reproducible, tested, integrated application—not simply a collection of independent AI modules.
+
+
+## Milestone: Reliable Database Health Check
+
+- **Date:** 2026-10-23
+- **Branch:** `feature/backend-foundation`
+- **Status:** Implemented and tested; pending commit.
+
+### Implementation
+- Replaced the placeholder database status in `/health` with a real SQLAlchemy connectivity check using `SELECT 1`.
+- The endpoint returns HTTP 200 when the database is reachable.
+- The endpoint returns HTTP 503 when a SQLAlchemy database error occurs.
+- Database error details are not exposed in the health-check response.
+- Existing CORS settings and router registrations were preserved.
+
+### Tests and Verification
+- Added `backend/tests/test_health.py`.
+- Tested successful database connectivity.
+- Tested database connection failure and HTTP 503 response.
+- Verified that internal database error details are not returned.
+- Automated test suite: **9 passed**.
+- `git diff --cached --check`: passed after staging and reviewing the changes.
+- One non-blocking Starlette deprecation warning remains concerning `httpx` compatibility with `TestClient`; dependency changes are deferred pending compatibility review.
+
+### Next Steps
+1. Commit and push this milestone.
+2. Verify patient and consultation API behavior against PostgreSQL.
+3. Review integration boundaries between the clinical-history module and patient/consultation persistence.
