@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import clinical_history
+from app.routers import clinical_history, consultations, patients
 
 # Initialize FastAPI app with Nurse Amma metadata
 app = FastAPI(
@@ -15,34 +15,34 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# Configure CORS for React/TypeScript frontend communication
+# Configure CORS for the React/TypeScript frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],  # Vite default dev ports
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Register Module Routers
 # Member 1: Clinical History Engine
 app.include_router(clinical_history.router)
 
-# Member 2: Document Intelligence Router (Placeholder for Member 2's module)
-# from app.routers import documents
-# app.include_router(documents.router)
+# Member 3: Patient Management
+app.include_router(patients.router)
 
-# Member 3: Consultations and Doctor Dashboard Router (Placeholder for Member 3's module)
-# from app.routers import consultations, doctor
-# app.include_router(consultations.router)
-# app.include_router(doctor.router)
+# Member 3: Consultation Management
+app.include_router(consultations.router)
+
+# Member 2: Document Intelligence will be registered
+# when that router has been implemented.
 
 
 @app.get("/", tags=["Health Check"])
 async def root():
-    """
-    Root endpoint for health checks and API status verification.
-    """
+    """Return API status information."""
     return {
         "status": "online",
         "service": "Nurse Amma API Engine",
@@ -53,14 +53,16 @@ async def root():
 
 @app.get("/health", tags=["Health Check"])
 async def health_check():
-    """
-    Detailed health check endpoint for monitoring backend services.
-    """
+    """Return the current application status."""
     return {
         "status": "healthy",
-        "database": "connected",  # Hook into session check when DB is configured
+        # This is still a placeholder until a real database
+        # connectivity check is implemented.
+        "database": "connected",
         "modules": {
             "clinical_history": "active",
+            "patient_management": "active",
+            "consultation_management": "active",
             "document_intelligence": "pending_integration",
             "doctor_dashboard": "pending_integration",
         },
