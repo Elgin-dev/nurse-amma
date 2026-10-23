@@ -7,6 +7,8 @@ from app.schemas.clinical_history import (
 )
 from app.services.question_engine import QuestionEngine
 from app.services.red_flag_service import RedFlagService
+from fastapi import File, UploadFile, Form
+from app.services.speech_service import SpeechService
 
 router = APIRouter(prefix="/api/v1/consultations", tags=["Clinical History"])
 
@@ -57,3 +59,28 @@ async def generate_draft_summary(
         red_flags=red_flags,
         review_status="pending_doctor_approval",
     )
+@router.post("/{consultation_id}/process-speech")
+async def process_patient_speech(
+    consultation_id: str,
+    language: str = Form("en"),
+    file: UploadFile = File(...)
+):
+    """
+    Accepts audio binary input from the patient interface, returns the recognized 
+    text transcript, or flags a speech error to switch the UI to touch/text fallback.
+    """
+    contents = await file.read()
+    transcript = await SpeechService.transcribe_audio_chunk(contents, language=language)
+    
+    if not transcript:
+        return {
+            "status": "fallback_required",
+            "message": "Speech recognition unavailable or low confidence. Please use text input.",
+            "transcript": None
+        }
+        
+    return {
+        "status": "success",
+        "transcript": transcript,
+        "language": language
+    }
