@@ -1,544 +1,336 @@
 # Nurse Amma — Development Status
 
-- **Last Updated:** 23 October 2026
-- **Project:** Nurse Amma — AI-Powered Multimodal Clinical History-Taking and Medical Document Intelligence System
-- **Responsible Member:** Member 3 — Backend, Database and Integration
-- **Repository:** [Elgin-dev/nurse-amma](https://github.com/Elgin-dev/nurse-amma)
-- **Working Branch:** `feature/backend-foundation`
-- **Current Phase:** Backend Foundation, Database Models and Persistence APIs
-- **Development Status:** Core implementation verified locally; current milestone pending commit and push.
+**Last updated:** 24 October 2026
+**Project:** Nurse Amma — AI-Powered Multimodal Clinical History-Taking and Medical Document Intelligence System
+**Responsible member:** Member 3 — Backend, Database, Frontend and Integration
+**Repository:** [Elgin-dev/nurse-amma](https://github.com/Elgin-dev/nurse-amma)
+**Current local branch:** `integration/backend-foundation`
+**Integration commit:** `03c9801` — `merge: integrate backend foundation with speech and NLP`
+**Publication status:** Integration branch and latest clinical-history changes have **not yet been pushed** to GitHub.
+
+> **Current status:** The database foundation and the latest speech/NLP code have been integrated locally. The clinical-history router now validates consultation UUIDs and preserves the speech endpoint. The latest local test run reports **17 passed, 1 non-blocking warning**. Clinical-history responses and summaries are still not persisted. This is not yet an end-to-end application.
 
 ---
 
 ## 1. Project Overview
 
-Nurse Amma is an AI-assisted pre-consultation healthcare application that collects patient history, processes medical documents, organizes clinical information into a medical timeline, and generates a structured summary for professional review.
+Nurse Amma is an AI-assisted pre-consultation healthcare application intended to collect patient-reported history, process medical documents, organize clinical information into a timeline, identify configured red flags, and prepare a draft summary for healthcare professional review.
 
-The central workflow is:
+**Target workflow:**
 
-**Patient Intake → Clinical History → Document Processing → Medical Timeline → Draft Clinical Summary → Healthcare Professional Review**
+`Patient intake → Clinical history → Document processing → Medical timeline → Draft clinical summary → Healthcare professional review`
 
-The application prepares and organizes medical information. It does not independently diagnose diseases or prescribe treatment.
+The application organizes information; it does not autonomously diagnose diseases or prescribe treatment. Use synthetic patients and documents during development. Never commit real patient information, private medical documents, credentials, or API keys.
 
-### Member Responsibilities
+### Team ownership
 
 | Member | Ownership |
 |---|---|
-| Member 1 | AI clinical history, conversational interaction, adaptive questioning and red-flag identification |
-| Member 2 | Medical document processing, OCR, entity extraction and timeline generation |
-| Member 3 | Shared backend, PostgreSQL database, database migrations, frontend, doctor dashboard and system integration |
+| Member 1 | Clinical history, conversational interaction, adaptive questioning, speech/NLP module, and red-flag rules |
+| Member 2 | Medical document processing, OCR, entity extraction, and timeline generation |
+| Member 3 | Shared backend, database and migrations, patient/consultation APIs, frontend, doctor dashboard, and system integration |
 
-This document records Member 3's implementation progress and the integration status of the overall project.
+Members should maintain their own modules and coordinate shared schemas, models, and API changes rather than duplicate each other's work.
 
 ---
 
-## 2. Technology Stack
+## 2. Current Remote and Local Git State
 
-| Component | Technology | Purpose |
+The following state was verified locally after fetching the remote branches. Re-run `git fetch --all --prune` before relying on these remote references for a later integration decision.
+
+| Branch/reference | Commit | Meaning |
 |---|---|---|
-| Backend language | Python 3.11.9 | Application development |
-| API framework | FastAPI | REST API and module integration |
-| Data validation | Pydantic | Request and response validation |
-| ORM | SQLAlchemy | Database models and queries |
-| Database migrations | Alembic | Version-controlled schema changes |
-| Database | PostgreSQL 18.6 | Persistent structured records |
-| PostgreSQL driver | Psycopg 3 | Python-to-PostgreSQL connectivity |
-| API server | Uvicorn | Local backend execution |
-| Testing | pytest, HTTPX | Automated API and backend tests |
-| Frontend target | React, TypeScript and Vite | Patient interface and doctor dashboard |
-| Version control | Git and GitHub | Collaboration and code review |
+| `origin/main` | `6866fc6` | Latest fetched main; includes the speech endpoint and NLP extractor |
+| `origin/feature/backend-foundation` | `23afeab` | Database foundation, patient/consultation APIs, migration, and health check |
+| `origin/feature/clinical-history` | `9c613ce` | Earlier clinical-history implementation; ancestor of the fetched `main` |
+| Local `integration/backend-foundation` | `03c9801` | Local merge commit integrating backend foundation with the fetched main branch |
 
-### Local Development Environment
+### Pending local work
 
-- Operating system: Windows.
-- Python virtual environment: `.venv/`.
-- PostgreSQL service: `postgresql-x64-18`.
-- Local database: `nurse_amma`.
-- Application database role: `nurse_amma_app`.
-- Local configuration file: `.env`, excluded from Git.
-- Shared configuration template: `.env.example`.
+- `backend/app/routers/clinical_history.py` — reconciled locally to validate consultation UUIDs while retaining `/process-speech`; staged, not yet committed after the integration merge.
+- `backend/tests/test_clinical_history_api.py` — API integration tests; present locally, not yet committed/pushed.
+- `docs/development-status.md` — must be replaced/updated with this current status and staged before the final integration commit.
+- `stash@{0}` — retained as a recovery copy of the earlier clinical-history validation change. Do not drop it until the final changes are committed, pushed, and verified on GitHub.
 
-Database credentials must remain local and must never be committed to the repository.
+The integration branch was created from the fetched `origin/main`; the backend-foundation changes merged without conflicts, and merge commit `03c9801` was created locally. The final clinical-history changes remain unpublished. Do not push directly to `main`; publish the integration branch for review after final verification.
 
 ---
 
-## 3. Current Implementation Status
+## 3. Technology Stack and Local Environment
 
-| Component | Status | Notes |
+| Component | Technology/status |
+|---|---|
+| Backend | Python 3.11.9, FastAPI, Uvicorn, Pydantic |
+| Database | PostgreSQL 18.6, Psycopg 3 |
+| ORM and migrations | SQLAlchemy 2.x, Alembic |
+| Tests | pytest, FastAPI TestClient, HTTPX |
+| Speech/NLP | Speech route and deterministic NLP extractor are present; Whisper is optional and not installed in the current `.venv` |
+| Document processing | Dependencies are declared, but the upload/OCR/entity pipeline is not implemented |
+| Frontend target | React, TypeScript, Vite; not yet implemented |
+| Configuration | Local `.env` (ignored by Git) and `.env.example` (tracked on the integration branch) |
+
+### Environment notes
+
+- Use the repository's `.venv` with Python **3.11.9**. The default system `python` has been observed to resolve to Python 3.10.11 and does not have the project test/migration packages installed.
+- `.env` contains local database configuration and must never be committed or copied into the status document.
+- `.venv/`, `.env`, bytecode, and test caches are local/generated files and should remain untracked.
+- Core dependencies are installed in `.venv`; `pip check` previously reported no broken requirements.
+- The optional AI dependencies (including `openai-whisper` and PyTorch) are not installed. Core backend tests should not require them. Install optional AI packages only when real inference/OCR implementation is scheduled and after checking platform compatibility.
+
+---
+
+## 4. Current Implementation Matrix
+
+| Component | Status | Evidence / limitation |
 |---|---|---|
-| Central repository cloned | Complete | Local project created |
-| Feature branch | Complete | `feature/backend-foundation` |
-| Python environment | Complete | Python 3.11.9 |
-| Core dependencies | Installed | From `backend/requirements.txt` |
-| Existing FastAPI application | Verified | Application starts successfully |
-| Clinical-history module | Verified | Existing tests pass |
-| PostgreSQL setup | Complete | Server running |
-| SQLAlchemy connection | Verified | Connected to `nurse_amma` as `nurse_amma_app` |
-| Environment configuration | Complete | `.env` locally ignored by Git |
-| SQLAlchemy base and session | Implemented | Shared database infrastructure |
-| Patient model | Implemented | UUID primary key |
-| Consultation model | Implemented | UUID primary key and patient foreign key |
-| Initial Alembic migration | Applied | Revision `14b36a1e2a74` |
-| Patient registration API | Implemented and tested | HTTP 201 verified |
-| Patient retrieval API | Implemented and tested | HTTP 200 verified |
-| Consultation creation API | Implemented and tested | HTTP 201 verified |
-| Consultation retrieval API | Implemented and tested | HTTP 200 verified using the correct consultation ID |
-| Automated test suite | Verified | 7 passed, 1 non-blocking warning |
-| Database-backed health check | Pending | Current database status is hardcoded |
-| React + TypeScript + Vite frontend | Pending | Not yet implemented |
-| Document intelligence integration | Pending | Awaiting Member 2's compatible module |
-| Doctor dashboard | Pending | Not yet implemented |
-| Clinical-history database persistence | Pending | Existing history and summary endpoints need persistence integration |
-| End-to-end application testing | Pending | Complete three-module workflow not yet implemented |
-
-**Current checkpoint:** Patient and consultation persistence has been implemented and tested locally. The current milestone's changes still need a final Git review, commit and push.
+| Central FastAPI application | Implemented and locally inspected | `backend/app/main.py`; one shared application |
+| Root endpoint | Implemented | `GET /` |
+| Database-backed health check | Implemented and tested | Executes `SELECT 1`; returns HTTP 503 on SQLAlchemy database errors |
+| Environment configuration | Implemented | `backend/app/core/config.py`, `.env.example` |
+| SQLAlchemy session and base | Implemented | `backend/app/db/session.py`, `backend/app/db/base.py` |
+| Patient model/API | Implemented and locally tested | UUID model, create/retrieve endpoints |
+| Consultation model/API | Implemented and locally tested | UUID model, patient foreign key, create/retrieve endpoints |
+| Initial Alembic migration | Applied locally | Revision `14b36a1e2a74`; creates `patients` and `consultations` tables and patient index |
+| Clinical question engine | Implemented; unit-tested | Deterministic fever, cough, and abdominal-pain pathways plus fallback |
+| Red-flag service | Partially implemented; unit-tested | Two initial hard-coded rules; requires broader testing and agreed clinical review |
+| NLP extractor | Implemented, limited scope | Deterministic duration/severity extraction; must not turn unknown values into asserted facts |
+| Speech endpoint | Implemented in code | `POST /api/v1/consultations/{consultation_id}/process-speech`; returns text fallback if transcription is unavailable |
+| Whisper loading | Refactored to lazy-load | Core imports work without Whisper. Real transcription has not been verified because Whisper is not installed |
+| Clinical-history consultation validation | Implemented locally, final commit pending | UUID consultation IDs are checked against the database; missing consultations return 404 |
+| Summary body/path ID consistency | Implemented locally, final commit pending | Conflicting or invalid body IDs are rejected with HTTP 422 |
+| Clinical-history response persistence | Not implemented | No response model/migration or saved-response workflow |
+| Summary/red-flag persistence | Not implemented | Draft summary and flags are returned in memory only |
+| Summary retrieval/update/review | Not implemented | No saved-summary GET/PATCH or professional review API |
+| Document upload/storage/OCR | Not implemented | Dependencies only; no completed document pipeline |
+| Medical entity provenance and timeline | Not implemented | No persistent entities/timeline models or APIs |
+| React patient interface | Not implemented | No `frontend/` application yet |
+| Doctor dashboard | Not implemented | No frontend or review workflow |
+| Authentication/authorization | Not implemented | Required before exposing real patient data or review operations |
+| End-to-end workflow | Not implemented | No test covering the full history-to-document-to-summary-to-review flow |
+| README/onboarding | Incomplete | Root README needs reproducible backend, database, migration, and eventual frontend setup instructions |
+| CI | Not evidenced | No verified workflow running tests and migration checks |
 
 ---
 
-## 4. Development History
+## 5. Current API Surface
 
-This section is chronological. New milestone entries should be added here as work progresses.
+OpenAPI inspection on the integration branch showed these paths:
 
-### Milestone 0 — Repository and Environment Setup
-
-**Status: Complete**
-
-Completed work:
-
-1. Cloned the central GitHub repository.
-2. Created the `feature/backend-foundation` branch.
-3. Configured the Python 3.11.9 virtual environment.
-4. Installed the backend dependencies.
-5. Ran the original clinical-history test suite.
-6. Started the existing FastAPI application.
-7. Confirmed that the application root endpoint returns HTTP 200.
-
-Initial verification: 3 existing tests passed.
-
-### Milestone 1 — Database Connectivity Foundation
-
-**Status: Complete, committed and pushed**
-
-Commit:`cead837`
-Commit message: `feat: establish database connectivity foundation`
-
-Implemented:
-
-- `backend/app/core/config.py` — application settings loaded from local environment configuration.
-- `backend/app/core/__init__.py` — Python package initialization.
-- `backend/app/db/base.py` — shared SQLAlchemy declarative base.
-- `backend/app/db/session.py` — SQLAlchemy engine, session factory and database session dependency.
-- `backend/app/db/__init__.py` — Python package initialization.
-- `.env.example` — safe template for local configuration.
-- `docs/development-status.md` — initial development record.
-
-PostgreSQL setup:
-
-- Installed PostgreSQL 18.6.
-- Created the `nurse_amma` database.
-- Created the `nurse_amma_app` application role.
-- Configured the local `.env` file.
-- Verified that Git ignores `.env`.
-- Granted the application role the necessary schema permissions.
-
-Database connectivity was verified through SQLAlchemy using:
-
-`SELECT current_database(), current_user`
-
-Observed result:
-
-- Database: `nurse_amma`
-- Database user: `nurse_amma_app`
-
-The local FastAPI application started successfully, and the original three tests passed.
-
-### Milestone 2 — Patient and Consultation Database Persistence
-
-**Status: Implemented and verified locally; pending commit and push**
-
-#### A. SQLAlchemy Models
-
-Created:
-
-- `backend/app/models/__init__.py`
-- `backend/app/models/patient.py`
-- `backend/app/models/consultation.py`
-
-The `Patient` model contains:
-
-- UUID primary key.
-- Patient name.
-- Optional date of birth.
-- Creation timestamp.
-- Relationship to consultations.
-
-The `Consultation` model contains:
-
-- UUID primary key.
-- Patient foreign key.
-- Language.
-- Lifecycle status.
-- Creation timestamp.
-- Optional completion timestamp.
-
-The database relationship allows one patient to have multiple consultations.
-
-#### B. Alembic Migrations
-
-Created the Alembic configuration and migration directory under `backend/`.
-
-Initial migration:
-
-- Revision: `14b36a1e2a74`
-- Description: `create patients and consultations`
-
-The migration creates:
-
-- `patients`
-- `consultations`
-- `ix_consultations_patient_id`
-
-It also contains downgrade operations to remove the index and tables in the appropriate order.
-
-The migration was applied successfully.
-
-Verified database tables:
-
-- `alembic_version`
-- `patients`
-- `consultations`
-
-Alembic reports `14b36a1e2a74` as the current head.
-
-#### C. Patient and Consultation APIs
-
-Created:
-
-- `backend/app/routers/patients.py`
-- `backend/app/routers/consultations.py`
-- `backend/app/schemas/patient.py`
-- `backend/app/schemas/consultation.py`
-
-Registered the patient and consultation routers in the existing central FastAPI application at `backend/app/main.py`.
-
-Implemented endpoints:
-
-| Method | Endpoint | Purpose |
+| Method | Path | Purpose/status |
 |---|---|---|
-| POST | `/api/v1/patients` | Register a patient |
-| GET | `/api/v1/patients/{patient_id}` | Retrieve patient details |
-| POST | `/api/v1/consultations` | Create a consultation for an existing patient |
-| GET | `/api/v1/consultations/{consultation_id}` | Retrieve consultation details |
+| `GET` | `/` | Application information |
+| `GET` | `/health` | Database connectivity check |
+| `POST` | `/api/v1/patients` | Create a patient |
+| `GET` | `/api/v1/patients/{patient_id}` | Retrieve a patient |
+| `POST` | `/api/v1/consultations` | Create a consultation for an existing patient |
+| `GET` | `/api/v1/consultations/{consultation_id}` | Retrieve a consultation |
+| `POST` | `/api/v1/consultations/{consultation_id}/next-question` | Generate next clinical-history question; validates consultation locally |
+| `POST` | `/api/v1/consultations/{consultation_id}/summary` | Generate an in-memory draft summary; validates consultation and rejects mismatched IDs locally |
+| `POST` | `/api/v1/consultations/{consultation_id}/process-speech` | Process uploaded audio or return text fallback; consultation validation added locally |
 
-The consultation endpoint verifies that the referenced patient exists before creating the consultation.
-
-#### D. Automated Tests
-
-Created:
-
-`backend/tests/test_patient_consultation_api.py`
-
-The additional tests cover:
-
-- Patient registration and retrieval.
-- Consultation creation and retrieval.
-- Rejection of a consultation referencing a nonexistent patient.
-- Rejection of a blank patient name.
-
-The test environment uses an isolated in-memory SQLite database, while local application execution uses PostgreSQL.
-
-**Latest verified automated result:** 7 passed, 1 non-blocking Starlette deprecation warning.
-
-#### E. Manual API Verification
-
-Verified through Swagger UI:
-
-1. Registered a synthetic patient; received HTTP 201.
-2. Retrieved the patient; received HTTP 200.
-3. Created a consultation linked to that patient; received HTTP 201.
-4. Retrieved the consultation using its own UUID; received HTTP 200.
-
-An earlier 404 occurred because the patient UUID was supplied to the consultation retrieval endpoint. Using the consultation UUID resolved the issue.
-
-The complete patient-to-consultation persistence workflow is therefore manually verified.
+The endpoints above were confirmed in the local OpenAPI path list. This does not mean the full clinical workflow is complete. The summary endpoint still does not persist a saved draft, and real Whisper inference remains unverified.
 
 ---
 
-## 5. Current Backend Architecture
+## 6. Latest Verification Results
 
-The existing backend is organized around one FastAPI application.
+**Last recorded local verification:** 24 October 2026.
 
-```text
-backend/
-├── app/
-│   ├── main.py
-│   ├── core/
-│   │   ├── __init__.py
-│   │   └── config.py
-│   ├── db/
-│   │   ├── __init__.py
-│   │   ├── base.py
-│   │   └── session.py
-│   ├── models/
-│   │   ├── __init__.py
-│   │   ├── patient.py
-│   │   └── consultation.py
-│   ├── routers/
-│   │   ├── clinical_history.py
-│   │   ├── patients.py
-│   │   └── consultations.py
-│   ├── schemas/
-│   │   ├── clinical_history.py
-│   │   ├── patient.py
-│   │   └── consultation.py
-│   └── services/
-│       ├── question_engine.py
-│       └── red_flag_service.py
-├── alembic/
-│   ├── env.py
-│   └── versions/
-├── tests/
-│   ├── test_clinical_history.py
-│   └── test_patient_consultation_api.py
-├── alembic.ini
-├── requirements.txt
-└── requirements-ai.txt
-```
+| Check | Result |
+|---|---|
+| Full test suite on integrated local branch | `17 passed, 1 warning` |
+| Warning | Non-blocking Starlette/HTTPX deprecation warning from `TestClient` |
+| OpenAPI path inspection | Patient, consultation, clinical-history, speech, root, and health paths found |
+| PostgreSQL connectivity | Previously verified using the project `.venv` |
+| Alembic current revision | `14b36a1e2a74 (head)` |
+| `alembic check` | `No new upgrade operations detected` |
+| `git diff --check` | Passed after the latest documentation whitespace fix, before final documentation replacement |
+| Clean-database migration test from scratch | Not yet verified |
+| Real Whisper transcription | Not verified; optional Whisper package/model unavailable |
+| End-to-end frontend workflow | Not implemented / not verified |
 
-This is the target structure for the currently implemented files. The document and frontend directories will be added as those modules are developed.
-
-The central application remains:
-
-`backend/app/main.py`
-
-Members must extend this shared application instead of creating independent production entry points.
+The tests use isolated SQLite fixtures for API tests. Passing these tests does not replace a PostgreSQL migration/CRUD test or prove that the complete application works end-to-end.
 
 ---
 
-## 6. Existing Clinical-History Integration
+## 7. Development History
 
-Member 1's router is registered in the central FastAPI application.
+### Milestone 0 — Repository and environment setup
 
-Existing endpoints:
+**Status:** Complete.
 
-- `POST /api/v1/consultations/{consultation_id}/next-question`
-- `POST /api/v1/consultations/{consultation_id}/summary`
+- Cloned the shared repository.
+- Created the Python `.venv` and configured local PostgreSQL.
+- Started the FastAPI application and ran the initial clinical-history tests.
 
-The existing implementation can generate questions and draft summaries, including red-flag results.
+### Milestone 1 — Database connectivity foundation
 
-However, the following integration remains pending:
+**Status:** Committed and pushed on `feature/backend-foundation`.
 
-- Persist clinical-history responses in PostgreSQL.
-- Validate the consultation ID against an existing consultation.
-- Associate history responses with the correct consultation.
-- Persist draft summaries and their review status.
-- Preserve the distinction between patient-reported information and clinician-verified information.
+- Commit: `cead837` — `feat: establish database connectivity foundation`
+- Added app settings, SQLAlchemy base/session, and `.env.example`.
+- Verified a database connection using SQLAlchemy.
 
-The existing summary route must be extended carefully. Do not create a duplicate route for the same method and path.
+### Milestone 2 — Patient and consultation persistence
 
----
+**Status:** Committed and pushed on `feature/backend-foundation`.
 
-## 7. Current Known Gaps
+- Commit: `8735b7f` — `feat: add patient and consultation persistence`
+- Added Patient and Consultation models, schemas, APIs, tests, and the initial Alembic migration.
+- Manually tested patient and consultation creation/retrieval with synthetic data.
 
-The following items remain intentionally incomplete:
+### Milestone 3 — Database health check
 
-### Backend
+**Status:** Committed and pushed on `feature/backend-foundation`.
 
-- `/health` still returns a hardcoded database status instead of performing a real connectivity check.
-- The patient and consultation API tests are working, but additional tests are needed for database failures and edge cases.
-- Authentication and role-based authorization have not yet been implemented.
-- The application setup and migration instructions need to be documented comprehensively for other developers.
+- Commit: `23afeab` — `fix: report actual database health`
+- `/health` now performs a real database query and reports HTTP 503 when the database check fails.
+- Added tests for healthy and unavailable database behavior.
 
-### Shared Clinical Data
+### Milestone 4 — Local backend + speech/NLP integration
 
-- Clinical-history responses and summaries are not yet persisted.
-- Document metadata and extracted entities are not yet integrated with the shared database.
-- The medical timeline has not yet been integrated across both information sources.
-- Clinician review and correction workflows remain pending.
+**Status:** Merge committed locally; final router validation changes and their API tests pending commit/push.
 
-### Frontend
-
-- React + TypeScript + Vite application is not yet implemented.
-- Patient intake screens are pending.
-- Document upload interface is pending.
-- Doctor dashboard and review controls are pending.
-
-### Integration
-
-- Member 2's document-processing module remains to be integrated.
-- The complete history-to-document-to-timeline-to-summary workflow is not yet verified.
-- End-to-end integration tests remain pending.
+- Started a new `integration/backend-foundation` branch from fetched `origin/main` at `6866fc6`.
+- Merged the backend foundation without file conflicts.
+- Merge commit: `03c9801` — `merge: integrate backend foundation with speech and NLP`.
+- Retained the speech endpoint and refactored Whisper to load lazily rather than at import time.
+- Replaced the speech test's real-model assumption with a deterministic mocked model test and removed the dependency on `pytest-asyncio`.
+- Reconciled clinical-history routes to validate consultation UUIDs while retaining speech processing.
+- Local test suite reports 17 passed, with one non-blocking warning.
 
 ---
 
-## 8. Next Development Milestone
+## 8. Current Known Gaps
 
-### Milestone 3 — Backend Reliability and Shared Clinical Integration Preparation
+### P0 — Must address next
 
-The next development tasks are:
+1. Agree on shared clinical-history input/response, summary, provenance, and review-state contracts with Member 1.
+2. Persist clinical-history responses, generated summaries, and red-flag results in PostgreSQL.
+3. Add summary retrieval and persistence-focused tests.
+4. Complete and push the currently staged clinical-history router change and untracked API test after reviewing the final diff.
+5. Reconcile `docs/project-specification.md` examples and folder layout with the canonical UUID/API convention and actual `backend/alembic/` location.
 
-1. Replace the hardcoded `/health` database status with a real PostgreSQL connectivity check.
-2. Add tests for database connectivity failures and API error handling.
-3. Add complete local setup and migration instructions to the README.
-4. Verify that all patient and consultation model files are correctly tracked by Git.
-5. Update this status document after the next verified milestone.
-6. Review and commit the patient/consultation persistence changes.
-7. Continue integration planning for clinical-history persistence and document intelligence.
+### P1 — After clinical-history persistence
 
-After the backend foundation is stable, begin the React + TypeScript + Vite frontend and connect it to the existing APIs.
+1. Coordinate with Member 2 on document metadata, file storage, OCR output, entity provenance, errors, and timeline contracts.
+2. Implement document upload validation and controlled storage.
+3. Implement text extraction/OCR and source-linked medical entities.
+4. Add PostgreSQL integration tests and fresh-database migration checks.
+5. Expand README setup instructions and define a repeatable dependency installation workflow.
 
----
+### P2 — User interface and access control
 
-## 9. Development and Integration Rules
-
-- Continue development on `feature/backend-foundation`.
-- Do not push ordinary feature work directly to `main`.
-- Keep one shared FastAPI application and one shared database configuration.
-- Use SQLAlchemy models and Alembic migrations for database changes.
-- Coordinate modifications to shared API contracts and database schemas.
-- Run automated tests before committing changes.
-- Review staged Git changes before every commit.
-- Never commit `.env`, database passwords, API keys, virtual environments, or real patient information.
-- Use synthetic records and synthetic documents during development.
-- Keep AI-generated information distinguishable from document-extracted and clinician-verified information.
-- Update the development status after each meaningful milestone rather than sending teammates routine messages for minor changes.
+1. Build a React/TypeScript/Vite patient-intake flow after the API contracts stabilize.
+2. Build the doctor dashboard for summaries, red flags, sources, corrections, and review status.
+3. Implement authentication and authorization before any use with real patient data.
+4. Add a CI workflow and end-to-end test coverage.
 
 ---
 
-## 10. Verification and Setup Commands
+## 9. Next Development Milestone — Persistent Clinical History
 
-Run commands from the repository root unless explicitly indicated otherwise.
+### Objective
 
-### Activate the virtual environment
+Complete one durable workflow:
+
+`Existing consultation → structured patient responses → generated draft → persisted summary and red flags → retrieve saved draft`
+
+### Required design agreement
+
+Coordinate with Member 1 before adding shared database models. Confirm:
+
+- Canonical UUID identifiers and whether the URL is the sole authoritative consultation ID.
+- Whether to store each answer as a separate row, a structured payload per submission, or both.
+- Summary schema and versioning behavior when a summary is regenerated.
+- Shared provenance states for patient-reported, document-extracted, AI-generated, unknown, and clinician-verified information.
+- Allowed review statuses and who may change them.
+
+Proposed initial approach: store a structured response snapshot and generated summary as versioned records linked by foreign key to the existing consultation; keep provenance and review status explicit. Finalize this with the module owner before creating the migration.
+
+### Acceptance criteria
+
+- A non-existent consultation returns HTTP 404 from relevant history and speech operations.
+- Invalid/mismatched identifiers are rejected consistently.
+- Submitted history and generated summaries are stored and can be retrieved after separate requests.
+- Red-flag output is stored with its explanation and review state.
+- A new draft is not automatically marked clinician-approved.
+- Tests cover successful persistence, retrieval, invalid consultations, ID conflicts, and rollback behavior.
+- A PostgreSQL migration is applied and checked locally.
+- All existing tests remain green.
+
+---
+
+## 10. Local Verification Commands
+
+Run these from PowerShell. Use the project interpreter explicitly if the system Python points to a different version.
+
+### Full test suite
 
 ```powershell
-.\.venv\Scripts\Activate.ps1
+cd C:\Projects\nurse-amma\backend
+& "..\.venv\Scripts\python.exe" -m pytest -q -p no:cacheprovider
 ```
 
-### Run backend tests
+### Migration verification
 
 ```powershell
-cd backend
-python -m pytest -q
+cd C:\Projects\nurse-amma\backend
+& "..\.venv\Scripts\python.exe" -m alembic current
+& "..\.venv\Scripts\python.exe" -m alembic heads
+& "..\.venv\Scripts\python.exe" -m alembic check
 ```
 
-### Check the migration status
+Expected current revision for the existing foundation migration: `14b36a1e2a74`.
 
-From `backend/`:
+### Start the API
 
 ```powershell
-python -m alembic current
+cd C:\Projects\nurse-amma\backend
+& "..\.venv\Scripts\python.exe" -m uvicorn app.main:app --reload
 ```
 
-Expected revision:
+- Swagger: `http://127.0.0.1:8000/docs`
+- Health: `http://127.0.0.1:8000/health`
 
-`14b36a1e2a74`
-
-### Verify database tables
-
-From `backend/`:
+### Git review before a commit
 
 ```powershell
-python -c "from sqlalchemy import inspect; from app.db.session import engine; print(inspect(engine).get_table_names())"
+cd C:\Projects\nurse-amma
+git status
+git diff --check
+git diff --cached --check
+git diff --cached --stat
+git diff --cached --name-only
 ```
 
-Expected tables include:
-
-- `patients`
-- `consultations`
-- `alembic_version`
-
-### Start FastAPI
-
-From `backend/`:
-
-```powershell
-python -m uvicorn app.main:app --reload
-```
-
-Local Swagger documentation:
-
-`http://127.0.0.1:8000/docs`
-
-Local root endpoint:
-
-`http://127.0.0.1:8000/`
-
-The local `.env` file is required for database configuration. Use `.env.example` to recreate the required configuration on another development machine; do not copy database passwords into the repository.
+Never stage `.env`, `.venv`, caches, secrets, API keys, or real patient information.
 
 ---
 
-## 11. Next Review Checkpoint
+## 11. Team Coordination Rules
 
-Milestone 2 is considered complete when:
+- Keep one FastAPI app in `backend/app/main.py` and one shared database configuration/session.
+- Use SQLAlchemy models and Alembic migrations for database schema changes.
+- Agree on shared schemas and identifiers with the owning member before changing cross-module contracts.
+- Member 1 owns clinical conversation logic and red-flag rule content; coordinate shared persistence with them rather than rewriting their module without review.
+- Member 2 owns document processing logic; agree on document storage, entity output, and source references before implementing dependent database/API work.
+- Keep AI-generated information distinct from patient-reported, document-extracted, unknown, and clinician-verified information.
+- Use synthetic records and synthetic medical documents only.
+- Run tests before committing; inspect all staged files.
+- Do not push ordinary work directly to `main`. Use the integration branch and a reviewed pull request.
+- Update this document after each meaningful, verified milestone; preserve historical test counts as historical records rather than rewriting them.
 
-- The patient and consultation models are committed.
-- The Alembic migration is committed.
-- Patient and consultation APIs are committed.
-- The automated tests pass.
-- The development-status document reflects the actual implementation.
-- The changes have been pushed to the Member 3 feature branch for review.
+---
 
-The next functional checkpoint is reached when the health endpoint correctly reports database connectivity and the backend can persist and retrieve clinical-history data linked to existing consultations.
+## 12. Immediate Next Actions
 
-The overall integration checkpoint will require the clinical-history and document-intelligence modules to work with the shared database and appear together in the doctor dashboard.
+1. Replace the local `docs/development-status.md` with this updated version and save it.
+2. Stage the document together with `backend/app/routers/clinical_history.py` and `backend/tests/test_clinical_history_api.py`.
+3. Run `git diff --cached --check`, inspect the staged file list and router diff, then rerun all 17 tests.
+4. Commit the clinical-history validation change on `integration/backend-foundation`.
+5. Push the integration branch to GitHub and verify the router, API test, and status document are present remotely.
+6. Keep `stash@{0}` until the remote files are verified; only then decide whether to drop the recovery stash.
+7. Ask Member 1 to review the proposed clinical-history persistence contract before creating the next migration.
 
-**Primary success criterion:** a reproducible, tested, integrated application—not simply a collection of independent AI modules.
-
-
-## Milestone: Reliable Database Health Check
-
-- **Date:** 2026-10-23
-- **Branch:** `feature/backend-foundation`
-- **Status:** Implemented and tested; pending commit.
-
-### Implementation
-- Replaced the placeholder database status in `/health` with a real SQLAlchemy connectivity check using `SELECT 1`.
-- The endpoint returns HTTP 200 when the database is reachable.
-- The endpoint returns HTTP 503 when a SQLAlchemy database error occurs.
-- Database error details are not exposed in the health-check response.
-- Existing CORS settings and router registrations were preserved.
-
-### Tests and Verification
-- Added `backend/tests/test_health.py`.
-- Tested successful database connectivity.
-- Tested database connection failure and HTTP 503 response.
-- Verified that internal database error details are not returned.
-- Automated test suite: **9 passed**.
-- `git diff --cached --check`: passed after staging and reviewing the changes.
-- One non-blocking Starlette deprecation warning remains concerning `httpx` compatibility with `TestClient`; dependency changes are deferred pending compatibility review.
-
-### Next Steps
-1. Commit and push this milestone.
-2. Verify patient and consultation API behavior against PostgreSQL.
-3. Review integration boundaries between the clinical-history module and patient/consultation persistence.
-
-## Integration Checkpoint — Backend Foundation and Speech/NLP
-
-**Date:** 2026-10-24
-**Branch:** `integration/backend-foundation`
-
-### Integrated components
-- Shared FastAPI application with clinical-history, patient, and consultation routers.
-- PostgreSQL configuration and SQLAlchemy session management.
-- Patient and consultation models, APIs, and initial Alembic migration.
-- Database-backed health endpoint with HTTP 503 handling on database errors.
-- Speech endpoint and deterministic NLP extraction from the latest `main` branch.
-- Lazy-loaded Whisper integration so the core application can be imported without optional speech dependencies.
-- Deterministic mocked speech-service tests.
-
-### Local verification
-- Automated tests: **13 passed, 1 warning**.
-- `git diff --cached --check`: passed before final documentation updates.
-- The local PostgreSQL database was previously verified at migration revision `14b36a1e2a74`; rerun migration checks on this integration branch before final acceptance.
-- The speech service's real Whisper transcription remains unverified because the optional Whisper dependency is not installed.
-
-### Remaining work
-1. Reapply and integrate clinical-history consultation validation.
-2. Persist patient responses, summaries, and red-flag results.
-3. Define and document shared provenance and review-status schemas.
-4. Implement medical document processing and timeline functionality.
-5. Build the React/TypeScript patient interface and doctor dashboard.
-6. Improve README setup instructions and add PostgreSQL integration tests.
-
-This checkpoint records local integration verification; it does not represent a completed end-to-end clinical workflow.
+**Primary success criterion:** a reproducible, tested, integrated application—not merely separate modules that exist in the repository.
