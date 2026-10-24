@@ -1,36 +1,73 @@
 import logging
-from typing import Optional
-import whisper
-import tempfile
 import os
+import tempfile
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Load model once during server startup (use 'tiny' or 'base' for fast local performance)
-model = whisper.load_model("base")
+# Load Whisper only when speech transcription is requested.
+# This keeps the core FastAPI application usable without optional AI packages.
+_model = None
+
+
+def _load_model():
+    """Load and cache the Whisper model on first use."""
+    global _model
+
+    if _model is None:
+        import whisper
+
+        _model = whisper.load_model("base")
+
+    return _model
+
 
 class SpeechService:
     @staticmethod
     async def transcribe_audio_chunk(
-        audio_bytes: bytes, language: str = "en"
+        audio_bytes: bytes,
+        language: str = "en",
     ) -> Optional[str]:
-        try:
-            if not audio_bytes:
-                return None
+        """Transcribe audio, returning None when transcription is unavailable."""
+        if not audio_bytes:
+            return None
 
-            # Save incoming audio stream to temporary file for Whisper processing
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
+        temp_path = None
+
+        try:
+            model = _load_model()
+
+            # Save audio temporarily for Whisper processing.
+            with tempfile.NamedTemporaryFile(
+                delete=False,
+                suffix=".wav",
+            ) as temp_audio:
                 temp_audio.write(audio_bytes)
                 temp_path = temp_audio.name
 
-            # Transcribe audio using Whisper
             result = model.transcribe(temp_path, language=language)
-            
-            # Clean up temporary file
-            os.remove(temp_path)
+            transcript = result.get("text", "").strip()
 
-            return result.get("text", "").strip()
+            return transcript or None
 
-        except Exception as e:
-            logger.error(f"Whisper speech processing error: {e}")
+        except ModuleNotFoundError as exc:
+            if exc.name == "whisper":
+                logger.warning(
+                    "Whisper is not installed; speech transcription is unavailable."
+                )
+            else:
+                logger.exception("A speech dependency is unavailable.")
+
             return None
+
+        except Exception:
+            logger.exception("Whisper speech processing failed.")
+            return None
+
+        finally:
+            # Always attempt cleanup, even if model transcription fails.
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    logger.warning("Could not remove temporary audio file.")
