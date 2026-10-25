@@ -6,14 +6,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 class ConsultationCreate(BaseModel):
     patient_id: UUID
-    language: str = Field(default="en", min_length=2, max_length=10)
+    language: str = Field(default="en", max_length=10)
 
     @field_validator("language")
     @classmethod
     def normalize_language(cls, value: str) -> str:
         value = value.strip().lower()
-        if not value:
-            raise ValueError("Language cannot be empty.")
+        if len(value) < 2:
+            raise ValueError("Language must contain at least 2 characters.")
         return value
 
 

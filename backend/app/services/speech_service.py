@@ -3,6 +3,8 @@ import os
 import tempfile
 from typing import Optional
 
+from starlette.concurrency import run_in_threadpool
+
 logger = logging.getLogger(__name__)
 
 # Load Whisper only when speech transcription is requested.
@@ -32,42 +34,53 @@ class SpeechService:
         if not audio_bytes:
             return None
 
-        temp_path = None
+        return await run_in_threadpool(
+            _transcribe_audio_chunk_sync,
+            audio_bytes,
+            language,
+        )
 
-        try:
-            model = _load_model()
 
-            # Save audio temporarily for Whisper processing.
-            with tempfile.NamedTemporaryFile(
-                delete=False,
-                suffix=".wav",
-            ) as temp_audio:
-                temp_audio.write(audio_bytes)
-                temp_path = temp_audio.name
+def _transcribe_audio_chunk_sync(
+    audio_bytes: bytes,
+    language: str = "en",
+) -> Optional[str]:
+    temp_path = None
 
-            result = model.transcribe(temp_path, language=language)
-            transcript = result.get("text", "").strip()
+    try:
+        model = _load_model()
 
-            return transcript or None
+        # Save audio temporarily for Whisper processing.
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=".wav",
+        ) as temp_audio:
+            temp_audio.write(audio_bytes)
+            temp_path = temp_audio.name
 
-        except ModuleNotFoundError as exc:
-            if exc.name == "whisper":
-                logger.warning(
-                    "Whisper is not installed; speech transcription is unavailable."
-                )
-            else:
-                logger.exception("A speech dependency is unavailable.")
+        result = model.transcribe(temp_path, language=language)
+        transcript = result.get("text", "").strip()
 
-            return None
+        return transcript or None
 
-        except Exception:
-            logger.exception("Whisper speech processing failed.")
-            return None
+    except ModuleNotFoundError as exc:
+        if exc.name == "whisper":
+            logger.warning(
+                "Whisper is not installed; speech transcription is unavailable."
+            )
+        else:
+            logger.exception("A speech dependency is unavailable.")
 
-        finally:
-            # Always attempt cleanup, even if model transcription fails.
-            if temp_path and os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                except OSError:
-                    logger.warning("Could not remove temporary audio file.")
+        return None
+
+    except Exception:
+        logger.exception("Whisper speech processing failed.")
+        return None
+
+    finally:
+        # Always attempt cleanup, even if model transcription fails.
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                logger.warning("Could not remove temporary audio file.")

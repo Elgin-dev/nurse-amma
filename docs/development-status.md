@@ -1,14 +1,14 @@
 # Nurse Amma — Development Status
 
-**Last updated:** 24 October 2026
+**Last updated:** 25 October 2026
 **Project:** Nurse Amma — AI-Powered Multimodal Clinical History-Taking and Medical Document Intelligence System
 **Responsible member:** Member 3 — Backend, Database, Frontend and Integration
 **Repository:** [Elgin-dev/nurse-amma](https://github.com/Elgin-dev/nurse-amma)
 **Current local branch:** `integration/backend-foundation`
 **Integration commit:** `03c9801` — `merge: integrate backend foundation with speech and NLP`
-**Publication status:** Integration branch and latest clinical-history changes have **not yet been pushed** to GitHub.
+**Publication status:** Integration branch has been pushed to GitHub and **PR #1 is open**.
 
-> **Current status:** The database foundation and the latest speech/NLP code have been integrated locally. The clinical-history router now validates consultation UUIDs and preserves the speech endpoint. The latest local test run reports **17 passed, 1 non-blocking warning**. Clinical-history responses and summaries are still not persisted. This is not yet an end-to-end application.
+> **Current status:** The database foundation and the latest speech/NLP code are integrated on `integration/backend-foundation` and published for review in PR #1. The clinical-history router validates consultation UUIDs and preserves the speech endpoint. The latest local test run reports **17 passed, 1 non-blocking warning**. Clinical-history responses and summaries are still not persisted. This is not yet an end-to-end application.
 
 ---
 
@@ -47,12 +47,12 @@ The following state was verified locally after fetching the remote branches. Re-
 
 ### Pending local work
 
-- `backend/app/routers/clinical_history.py` — reconciled locally to validate consultation UUIDs while retaining `/process-speech`; staged, not yet committed after the integration merge.
-- `backend/tests/test_clinical_history_api.py` — API integration tests; present locally, not yet committed/pushed.
-- `docs/development-status.md` — must be replaced/updated with this current status and staged before the final integration commit.
+- `backend/app/routers/clinical_history.py` — reconciled to validate consultation UUIDs while retaining `/process-speech`; pushed on `integration/backend-foundation` and under review in PR #1.
+- `backend/tests/test_clinical_history_api.py` — API integration tests were committed and pushed with the clinical-history validation changes.
+- `docs/development-status.md` — kept current as integration and review status changes.
 - `stash@{0}` — retained as a recovery copy of the earlier clinical-history validation change. Do not drop it until the final changes are committed, pushed, and verified on GitHub.
 
-The integration branch was created from the fetched `origin/main`; the backend-foundation changes merged without conflicts, and merge commit `03c9801` was created locally. The final clinical-history changes remain unpublished. Do not push directly to `main`; publish the integration branch for review after final verification.
+The integration branch was created from the fetched `origin/main`; the backend-foundation changes merged without conflicts, and merge commit `03c9801` was created locally. The branch is now published and PR #1 is open for review. Do not push directly to `main`.
 
 ---
 
@@ -96,8 +96,8 @@ The integration branch was created from the fetched `origin/main`; the backend-f
 | NLP extractor | Implemented, limited scope | Deterministic duration/severity extraction; must not turn unknown values into asserted facts |
 | Speech endpoint | Implemented in code | `POST /api/v1/consultations/{consultation_id}/process-speech`; returns text fallback if transcription is unavailable |
 | Whisper loading | Refactored to lazy-load | Core imports work without Whisper. Real transcription has not been verified because Whisper is not installed |
-| Clinical-history consultation validation | Implemented locally, final commit pending | UUID consultation IDs are checked against the database; missing consultations return 404 |
-| Summary body/path ID consistency | Implemented locally, final commit pending | Conflicting or invalid body IDs are rejected with HTTP 422 |
+| Clinical-history consultation validation | Implemented and pushed | UUID consultation IDs are checked against the database; missing consultations return 404 |
+| Summary body/path ID consistency | Implemented and pushed | Conflicting or invalid body IDs are rejected with HTTP 422 |
 | Clinical-history response persistence | Not implemented | No response model/migration or saved-response workflow |
 | Summary/red-flag persistence | Not implemented | Draft summary and flags are returned in memory only |
 | Summary retrieval/update/review | Not implemented | No saved-summary GET/PATCH or professional review API |
@@ -189,7 +189,7 @@ The tests use isolated SQLite fixtures for API tests. Passing these tests does n
 
 ### Milestone 4 — Local backend + speech/NLP integration
 
-**Status:** Merge committed locally; final router validation changes and their API tests pending commit/push.
+**Status:** Merge and follow-up clinical-history validation changes committed and pushed; PR #1 is open.
 
 - Started a new `integration/backend-foundation` branch from fetched `origin/main` at `6866fc6`.
 - Merged the backend foundation without file conflicts.
@@ -208,7 +208,7 @@ The tests use isolated SQLite fixtures for API tests. Passing these tests does n
 1. Agree on shared clinical-history input/response, summary, provenance, and review-state contracts with Member 1.
 2. Persist clinical-history responses, generated summaries, and red-flag results in PostgreSQL.
 3. Add summary retrieval and persistence-focused tests.
-4. Complete and push the currently staged clinical-history router change and untracked API test after reviewing the final diff.
+4. Address review feedback on PR #1 and keep the integration branch up to date with verified fixes.
 5. Reconcile `docs/project-specification.md` examples and folder layout with the canonical UUID/API convention and actual `backend/alembic/` location.
 
 ### P1 — After clinical-history persistence
@@ -325,12 +325,10 @@ Never stage `.env`, `.venv`, caches, secrets, API keys, or real patient informat
 
 ## 12. Immediate Next Actions
 
-1. Replace the local `docs/development-status.md` with this updated version and save it.
-2. Stage the document together with `backend/app/routers/clinical_history.py` and `backend/tests/test_clinical_history_api.py`.
-3. Run `git diff --cached --check`, inspect the staged file list and router diff, then rerun all 17 tests.
-4. Commit the clinical-history validation change on `integration/backend-foundation`.
-5. Push the integration branch to GitHub and verify the router, API test, and status document are present remotely.
-6. Keep `stash@{0}` until the remote files are verified; only then decide whether to drop the recovery stash.
-7. Ask Member 1 to review the proposed clinical-history persistence contract before creating the next migration.
+1. Address all open PR #1 review findings and push verified fixes on `integration/backend-foundation`.
+2. Rerun the backend test suite after each meaningful fix batch.
+3. Keep `stash@{0}` until review feedback is resolved and remote verification is complete; then decide whether to drop the recovery stash.
+4. Ask Member 1 to review the proposed clinical-history persistence contract before creating the next migration.
+5. Proceed with persistence implementation only after review feedback is fully resolved.
 
 **Primary success criterion:** a reproducible, tested, integrated application—not merely separate modules that exist in the repository.

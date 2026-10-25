@@ -74,6 +74,43 @@ def test_speech_service_missing_whisper_uses_fallback(monkeypatch):
     assert result is None
 
 
+def test_speech_service_uses_threadpool_for_blocking_work(monkeypatch):
+    calls = {}
+
+    class FakeWhisperModel:
+        def transcribe(self, audio_path, language="en"):
+            return {"text": "transcribed in threadpool"}
+
+    async def fake_run_in_threadpool(func, *args, **kwargs):
+        calls["func"] = func
+        calls["args"] = args
+        calls["kwargs"] = kwargs
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(
+        speech_service,
+        "_load_model",
+        lambda: FakeWhisperModel(),
+    )
+    monkeypatch.setattr(
+        speech_service,
+        "run_in_threadpool",
+        fake_run_in_threadpool,
+    )
+
+    result = asyncio.run(
+        SpeechService.transcribe_audio_chunk(
+            b"synthetic audio bytes",
+            language="en",
+        )
+    )
+
+    assert result == "transcribed in threadpool"
+    assert calls["func"] is speech_service._transcribe_audio_chunk_sync
+    assert calls["args"] == (b"synthetic audio bytes", "en")
+    assert calls["kwargs"] == {}
+
+
 def test_nlp_extractor_duration_and_severity():
     text = "I have had a severe fever for 3 days and bad headaches"
 

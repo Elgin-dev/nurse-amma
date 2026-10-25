@@ -21,6 +21,12 @@ router = APIRouter(
     tags=["Clinical History"],
 )
 
+HTTP_422_UNPROCESSABLE = getattr(
+    status,
+    "HTTP_422_UNPROCESSABLE_CONTENT",
+    422,
+)
+
 
 def require_consultation(
     db: Session,
@@ -72,13 +78,13 @@ def generate_draft_summary(
         payload_consultation_id = uuid.UUID(payload.consultation_id)
     except ValueError:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=HTTP_422_UNPROCESSABLE,
             detail="Invalid consultation_id in request body",
         )
 
     if payload_consultation_id != consultation_id:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=HTTP_422_UNPROCESSABLE,
             detail="consultation_id in request body must match the URL",
         )
 

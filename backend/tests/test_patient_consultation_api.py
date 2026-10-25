@@ -123,6 +123,67 @@ def test_consultation_requires_existing_patient(
     assert response.json()["detail"] == "Patient not found."
 
 
+def test_consultation_language_rejects_single_char_after_normalization(
+    client: TestClient,
+) -> None:
+    patient_response = client.post(
+        "/api/v1/patients",
+        json={"full_name": "Language Validation Patient"},
+    )
+    assert patient_response.status_code == 201
+
+    response = client.post(
+        "/api/v1/consultations",
+        json={
+            "patient_id": patient_response.json()["id"],
+            "language": " a ",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_consultation_language_rejects_whitespace_only(
+    client: TestClient,
+) -> None:
+    patient_response = client.post(
+        "/api/v1/patients",
+        json={"full_name": "Language Validation Patient"},
+    )
+    assert patient_response.status_code == 201
+
+    response = client.post(
+        "/api/v1/consultations",
+        json={
+            "patient_id": patient_response.json()["id"],
+            "language": "   ",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_consultation_language_normalizes_valid_value(
+    client: TestClient,
+) -> None:
+    patient_response = client.post(
+        "/api/v1/patients",
+        json={"full_name": "Language Validation Patient"},
+    )
+    assert patient_response.status_code == 201
+
+    response = client.post(
+        "/api/v1/consultations",
+        json={
+            "patient_id": patient_response.json()["id"],
+            "language": " EN ",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["language"] == "en"
+
+
 def test_patient_name_cannot_be_blank(client: TestClient) -> None:
     response = client.post(
         "/api/v1/patients",
