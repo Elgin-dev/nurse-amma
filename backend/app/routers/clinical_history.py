@@ -1,15 +1,32 @@
-
 import uuid
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.clinical_history_submission import ClinicalHistorySubmission
+from app.models.clinical_red_flag import ClinicalRedFlag
+from app.models.clinical_summary import ClinicalSummary
 from app.models.consultation import Consultation
 from app.schemas.clinical_history import (
-    PatientResponseInput,
     DraftSummaryResponse,
     NextQuestionResponse,
+    PatientResponseInput,
+    RedFlagAlert,
+)
+from app.schemas.clinical_history_persistence import (
+    ClinicalHistorySubmissionResponse,
 )
 from app.services.question_engine import QuestionEngine
 from app.services.red_flag_service import RedFlagService
@@ -20,6 +37,7 @@ router = APIRouter(
     prefix="/api/v1/consultations",
     tags=["Clinical History"],
 )
+
 
 HTTP_422_UNPROCESSABLE = getattr(
     status,
@@ -42,6 +60,106 @@ def require_consultation(
         )
 
     return consultation
+
+
+def build_summary_response(
+    summary: ClinicalSummary,
+    alerts: list[ClinicalRedFlag],
+) -> DraftSummaryResponse:
+    """Build the public response from persisted summary and alert records."""
+    payload = summary.payload
+
+    red_flags = [
+        RedFlagAlert(
+            flag_id=alert.flag_id,
+            severity=alert.severity,
+            trigger=alert.trigger,
+            action_required=alert.action_required,
+        )
+        for alert in alerts
+    ]
+
+    return DraftSummaryResponse(
+        summary_id=f"SUM-{summary.id}",
+        consultation_id=str(summary.consultation_id),
+        chief_complaint=payload["chief_complaint"],
+        history_of_present_illness=payload["history_of_present_illness"],
+        past_medical_history=payload["past_medical_history"],
+        medication_history=payload["medication_history"],
+        allergies=payload["allergies"],
+        investigation_history=payload["investigation_history"],
+        red_flags=red_flags,
+        review_status=summary.review_status,
+    )
+
+
+@router.post(
+    "/{consultation_id}/responses",
+    response_model=ClinicalHistorySubmissionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def save_clinical_history_response(
+    consultation_id: uuid.UUID,
+    payload: PatientResponseInput,
+    db: Session = Depends(get_db),
+):
+    """Persist a versioned snapshot of structured patient history."""
+    try:
+        payload_consultation_id = uuid.UUID(payload.consultation_id)
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise HTTPException(
+            status_code=HTTP_422_UNPROCESSABLE,
+            detail="Invalid consultation_id in request body",
+        ) from exc
+
+    if payload_consultation_id != consultation_id:
+        raise HTTPException(
+            status_code=HTTP_422_UNPROCESSABLE,
+            detail="consultation_id in request body must match the URL",
+        )
+
+    consultation = db.scalar(
+        select(Consultation)
+        .where(Consultation.id == consultation_id)
+        .with_for_update()
+    )
+
+    if consultation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Consultation not found",
+        )
+
+    current_version = db.scalar(
+        select(func.max(ClinicalHistorySubmission.version)).where(
+            ClinicalHistorySubmission.consultation_id == consultation_id
+        )
+    )
+
+    submission = ClinicalHistorySubmission(
+        consultation_id=consultation_id,
+        version=(current_version or 0) + 1,
+        schema_version=1,
+        payload=payload.model_dump(mode="json"),
+        source=payload.source,
+        verification_status="unverified",
+    )
+
+    try:
+        db.add(submission)
+        db.commit()
+        db.refresh(submission)
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Could not create the next history version; retry the request",
+        ) from exc
+    except Exception:
+        db.rollback()
+        raise
+
+    return submission
 
 
 @router.post(
@@ -69,26 +187,90 @@ def get_next_question(
 )
 def generate_draft_summary(
     consultation_id: uuid.UUID,
-    payload: PatientResponseInput,
+    payload: PatientResponseInput | None = None,
     db: Session = Depends(get_db),
 ):
-    """Generate a draft summary for an existing consultation."""
+    """
+    Generate and persist a draft summary with its source history
+    and associated red-flag findings.
 
-    try:
-        payload_consultation_id = uuid.UUID(payload.consultation_id)
-    except ValueError:
+    If a payload is supplied, reuse the latest identical submission
+    or create a new version when the payload has changed.
+    If no payload is supplied, use the latest saved submission.
+    """
+    # Lock the consultation to serialize version allocation in PostgreSQL.
+    consultation = db.scalar(
+        select(Consultation)
+        .where(Consultation.id == consultation_id)
+        .with_for_update()
+    )
+
+    if consultation is None:
         raise HTTPException(
-            status_code=HTTP_422_UNPROCESSABLE,
-            detail="Invalid consultation_id in request body",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Consultation not found",
         )
 
-    if payload_consultation_id != consultation_id:
-        raise HTTPException(
-            status_code=HTTP_422_UNPROCESSABLE,
-            detail="consultation_id in request body must match the URL",
-        )
+    latest_submission = db.scalar(
+        select(ClinicalHistorySubmission)
+        .where(ClinicalHistorySubmission.consultation_id == consultation_id)
+        .order_by(ClinicalHistorySubmission.version.desc())
+        .limit(1)
+    )
 
-    require_consultation(db, consultation_id)
+    # This flag tells the persistence block whether the source submission
+    # is new and must be flushed before its generated ID is used as a FK.
+    new_submission = False
+
+    # Allow older clients to supply the structured payload directly.
+    # New callers can omit it after saving a response through /responses.
+    if payload is not None:
+        try:
+            payload_consultation_id = uuid.UUID(payload.consultation_id)
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise HTTPException(
+                status_code=HTTP_422_UNPROCESSABLE,
+                detail="Invalid consultation_id in request body",
+            ) from exc
+
+        if payload_consultation_id != consultation_id:
+            raise HTTPException(
+                status_code=HTTP_422_UNPROCESSABLE,
+                detail="consultation_id in request body must match the URL",
+            )
+
+        payload_data = payload.model_dump(mode="json")
+
+        if (
+            latest_submission is not None
+            and latest_submission.payload == payload_data
+        ):
+            submission = latest_submission
+        else:
+            current_submission_version = (
+                latest_submission.version if latest_submission else 0
+            )
+
+            submission = ClinicalHistorySubmission(
+                consultation_id=consultation_id,
+                version=current_submission_version + 1,
+                schema_version=1,
+                payload=payload_data,
+                source=payload.source,
+                verification_status="unverified",
+            )
+            new_submission = True
+    else:
+        if latest_submission is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No saved clinical history submission found",
+            )
+
+        submission = latest_submission
+        payload = PatientResponseInput.model_validate(submission.payload)
+
+    assert payload is not None
 
     red_flags = RedFlagService.evaluate_red_flags(payload)
 
@@ -99,35 +281,129 @@ def generate_draft_summary(
         else ""
     )
 
+    associated_symptoms_text = (
+        ", ".join(payload.associated_symptoms)
+        if payload.associated_symptoms
+        else "Not provided"
+    )
+
     hpi = (
         f"Patient reports {payload.chief_complaint} {duration_str}. "
         f"Severity: {payload.symptom_details.severity or 'unspecified'}. "
         f"Progression: {payload.symptom_details.progression or 'unspecified'}. "
-        f"Associated symptoms: "
-        f"{', '.join(payload.associated_symptoms) if payload.associated_symptoms else 'None reported'}."
+        f"Associated symptoms: {associated_symptoms_text}."
     )
 
     medication_list = [
         {
             "name": medication,
-            "source_type": "patient_reported",
+            "source_type": payload.source,
             "status": "unverified",
         }
         for medication in payload.current_medications
     ]
 
-    return DraftSummaryResponse(
-        summary_id=f"SUM-{uuid.uuid4().hex[:8]}",
-        consultation_id=str(consultation_id),
-        chief_complaint=payload.chief_complaint,
-        history_of_present_illness=hpi,
-        past_medical_history=payload.past_medical_history,
-        medication_history=medication_list,
-        allergies=payload.allergies,
-        investigation_history=[],
-        red_flags=red_flags,
-        review_status="pending_doctor_approval",
+    next_summary_version = (
+        db.scalar(
+            select(func.max(ClinicalSummary.version)).where(
+                ClinicalSummary.consultation_id == consultation_id
+            )
+        )
+        or 0
+    ) + 1
+
+    summary_payload = {
+        "chief_complaint": payload.chief_complaint,
+        "history_of_present_illness": hpi,
+        "past_medical_history": payload.past_medical_history,
+        "medication_history": medication_list,
+        "allergies": payload.allergies,
+        "investigation_history": [],
+    }
+
+    try:
+        # FIX: flush a newly created submission first. SQLAlchemy's column
+        # default may not assign submission.id until INSERT/flush. Creating
+        # ClinicalSummary before this point can leave source_submission_id=None
+        # and trigger the NOT NULL/FK constraint, which previously returned 409.
+        if new_submission:
+            db.add(submission)
+            db.flush()
+
+        summary = ClinicalSummary(
+            consultation_id=consultation_id,
+            source_submission_id=submission.id,
+            version=next_summary_version,
+            payload=summary_payload,
+            review_status="pending_doctor_approval",
+        )
+
+        db.add(summary)
+        db.flush()
+
+        alert_records = [
+            ClinicalRedFlag(
+                summary_id=summary.id,
+                flag_id=alert.flag_id,
+                severity=alert.severity,
+                trigger=alert.trigger,
+                action_required=alert.action_required,
+            )
+            for alert in red_flags
+        ]
+        db.add_all(alert_records)
+        db.commit()
+        db.refresh(summary)
+
+        saved_alerts = db.scalars(
+            select(ClinicalRedFlag)
+            .where(ClinicalRedFlag.summary_id == summary.id)
+            .order_by(ClinicalRedFlag.created_at, ClinicalRedFlag.id)
+        ).all()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Could not persist the clinical summary; retry the request",
+        ) from exc
+    except Exception:
+        db.rollback()
+        raise
+
+    return build_summary_response(summary, saved_alerts)
+
+
+@router.get(
+    "/{consultation_id}/summary",
+    response_model=DraftSummaryResponse,
+)
+def get_saved_summary(
+    consultation_id: uuid.UUID,
+    db: Session = Depends(get_db),
+):
+    """Retrieve the latest persisted summary and its red-flag findings."""
+    require_consultation(db, consultation_id)
+
+    summary = db.scalar(
+        select(ClinicalSummary)
+        .where(ClinicalSummary.consultation_id == consultation_id)
+        .order_by(ClinicalSummary.version.desc())
+        .limit(1)
     )
+
+    if summary is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No saved clinical summary found",
+        )
+
+    alerts = db.scalars(
+        select(ClinicalRedFlag)
+        .where(ClinicalRedFlag.summary_id == summary.id)
+        .order_by(ClinicalRedFlag.created_at, ClinicalRedFlag.id)
+    ).all()
+
+    return build_summary_response(summary, alerts)
 
 
 @router.post("/{consultation_id}/process-speech")
