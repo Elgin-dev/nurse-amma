@@ -4,6 +4,7 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     ForeignKey,
     String,
@@ -20,6 +21,13 @@ class ClinicalRedFlag(Base):
     """A red-flag finding associated with a persisted clinical summary."""
 
     __tablename__ = "clinical_red_flags"
+
+    __table_args__ = (
+        CheckConstraint(
+            "review_status IN ('pending_review', 'acknowledged', 'verified', 'dismissed', 'corrected')",
+            name="ck_clinical_red_flags_review_status",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
@@ -51,6 +59,13 @@ class ClinicalRedFlag(Base):
 
     action_required: Mapped[str] = mapped_column(
         Text,
+        nullable=False,
+    )
+
+    review_status: Mapped[str] = mapped_column(
+        String(24),
+        default="pending_review",
+        server_default="pending_review",
         nullable=False,
     )
 

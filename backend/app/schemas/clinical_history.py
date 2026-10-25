@@ -1,5 +1,6 @@
 from enum import Enum
-from typing import List, Optional
+from typing import List, Literal, Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -29,14 +30,29 @@ class SymptomDetails(BaseModel):
 
 
 class PatientResponseInput(BaseModel):
+    """Structured input for this endpoint, which records patient-reported data.
+
+    The source is constrained so a caller cannot label patient-provided information
+    as document-derived or clinician-verified. Other ingestion paths should use
+    their own trusted server-side provenance assignment.
+    """
+
     consultation_id: str
     chief_complaint: str
     symptom_details: SymptomDetails
-    associated_symptoms: List[str] = []
-    past_medical_history: List[str] = []
-    current_medications: List[str] = []
-    allergies: List[str] = []
-    source: str = Field(default="patient_reported")
+    associated_symptoms: List[str] = Field(default_factory=list)
+    past_medical_history: List[str] = Field(default_factory=list)
+    current_medications: List[str] = Field(default_factory=list)
+    allergies: List[str] = Field(default_factory=list)
+    source: Literal["patient_reported"] = "patient_reported"
+
+
+class RedFlagReviewStatus(str, Enum):
+    PENDING_REVIEW = "pending_review"
+    ACKNOWLEDGED = "acknowledged"
+    VERIFIED = "verified"
+    DISMISSED = "dismissed"
+    CORRECTED = "corrected"
 
 
 class RedFlagAlert(BaseModel):
@@ -44,6 +60,7 @@ class RedFlagAlert(BaseModel):
     severity: str = Field(..., description="high, medium, low")
     trigger: str
     action_required: str
+    review_status: RedFlagReviewStatus = RedFlagReviewStatus.PENDING_REVIEW
 
 
 class DraftSummaryResponse(BaseModel):
@@ -54,7 +71,7 @@ class DraftSummaryResponse(BaseModel):
     past_medical_history: List[str]
     medication_history: List[dict]
     allergies: List[str]
-    investigation_history: List[dict] = []
+    investigation_history: List[dict] = Field(default_factory=list)
     red_flags: List[RedFlagAlert]
     review_status: str = "pending_doctor_approval"
 

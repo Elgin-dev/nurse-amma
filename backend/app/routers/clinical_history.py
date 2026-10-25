@@ -25,9 +25,7 @@ from app.schemas.clinical_history import (
     PatientResponseInput,
     RedFlagAlert,
 )
-from app.schemas.clinical_history_persistence import (
-    ClinicalHistorySubmissionResponse,
-)
+from app.schemas.clinical_history_persistence import ClinicalHistorySubmissionResponse
 from app.services.question_engine import QuestionEngine
 from app.services.red_flag_service import RedFlagService
 from app.services.speech_service import SpeechService
@@ -38,7 +36,6 @@ router = APIRouter(
     tags=["Clinical History"],
 )
 
-
 HTTP_422_UNPROCESSABLE = getattr(
     status,
     "HTTP_422_UNPROCESSABLE_CONTENT",
@@ -46,19 +43,19 @@ HTTP_422_UNPROCESSABLE = getattr(
 )
 
 
-def require_consultation(
-    db: Session,
-    consultation_id: uuid.UUID,
-) -> Consultation:
-    """Return an existing consultation or raise HTTP 404."""
-    consultation = db.get(Consultation, consultation_id)
+def require_consultation(db: Session, consultation_id: uuid.UUID) -> Consultation:
+    """Return an existing consultation or raise HTTP 404.
 
+    NOTE: this checks existence only. It is not an authorization check. Protected
+    clinical endpoints must be integrated with the project's real authentication
+    and consultation-access policy before they are exposed beyond local development.
+    """
+    consultation = db.get(Consultation, consultation_id)
     if consultation is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Consultation not found",
         )
-
     return consultation
 
 
@@ -66,19 +63,18 @@ def build_summary_response(
     summary: ClinicalSummary,
     alerts: list[ClinicalRedFlag],
 ) -> DraftSummaryResponse:
-    """Build the public response from persisted summary and alert records."""
+    """Build the public response from persisted summary and red-flag records."""
     payload = summary.payload
-
     red_flags = [
         RedFlagAlert(
             flag_id=alert.flag_id,
             severity=alert.severity,
             trigger=alert.trigger,
             action_required=alert.action_required,
+            review_status=alert.review_status,
         )
         for alert in alerts
     ]
-
     return DraftSummaryResponse(
         summary_id=f"SUM-{summary.id}",
         consultation_id=str(summary.consultation_id),
@@ -103,7 +99,7 @@ def save_clinical_history_response(
     payload: PatientResponseInput,
     db: Session = Depends(get_db),
 ):
-    """Persist a versioned snapshot of structured patient history."""
+    """Persist a versioned, explicitly patient-reported history snapshot."""
     try:
         payload_consultation_id = uuid.UUID(payload.consultation_id)
     except (ValueError, TypeError, AttributeError) as exc:
@@ -123,7 +119,6 @@ def save_clinical_history_response(
         .where(Consultation.id == consultation_id)
         .with_for_update()
     )
-
     if consultation is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -136,12 +131,15 @@ def save_clinical_history_response(
         )
     )
 
+    payload_data = payload.model_dump(mode="json")
+    # Server-side assignment is intentional: this endpoint records patient input.
+    payload_data["source"] = "patient_reported"
     submission = ClinicalHistorySubmission(
         consultation_id=consultation_id,
         version=(current_version or 0) + 1,
         schema_version=1,
-        payload=payload.model_dump(mode="json"),
-        source=payload.source,
+        payload=payload_data,
+        source="patient_reported",
         verification_status="unverified",
     )
 
@@ -174,11 +172,7 @@ def get_next_question(
 ):
     """Generate the next question for an existing consultation."""
     require_consultation(db, consultation_id)
-
-    return QuestionEngine.get_next_question(
-        chief_complaint,
-        answered_keys or [],
-    )
+    return QuestionEngine.get_next_question(chief_complaint, answered_keys or [])
 
 
 @router.post(
@@ -190,21 +184,16 @@ def generate_draft_summary(
     payload: PatientResponseInput | None = None,
     db: Session = Depends(get_db),
 ):
-    """
-    Generate and persist a draft summary with its source history
-    and associated red-flag findings.
+    """Generate and persist a draft summary and its red-flag findings.
 
-    If a payload is supplied, reuse the latest identical submission
-    or create a new version when the payload has changed.
-    If no payload is supplied, use the latest saved submission.
+    A caller-supplied payload is treated as patient-reported input only. If no
+    payload is supplied, the latest persisted submission is used.
     """
-    # Lock the consultation to serialize version allocation in PostgreSQL.
     consultation = db.scalar(
         select(Consultation)
         .where(Consultation.id == consultation_id)
         .with_for_update()
     )
-
     if consultation is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -218,12 +207,7 @@ def generate_draft_summary(
         .limit(1)
     )
 
-    # This flag tells the persistence block whether the source submission
-    # is new and must be flushed before its generated ID is used as a FK.
     new_submission = False
-
-    # Allow older clients to supply the structured payload directly.
-    # New callers can omit it after saving a response through /responses.
     if payload is not None:
         try:
             payload_consultation_id = uuid.UUID(payload.consultation_id)
@@ -240,23 +224,17 @@ def generate_draft_summary(
             )
 
         payload_data = payload.model_dump(mode="json")
-
-        if (
-            latest_submission is not None
-            and latest_submission.payload == payload_data
-        ):
+        payload_data["source"] = "patient_reported"
+        if latest_submission is not None and latest_submission.payload == payload_data:
             submission = latest_submission
         else:
-            current_submission_version = (
-                latest_submission.version if latest_submission else 0
-            )
-
+            current_submission_version = latest_submission.version if latest_submission else 0
             submission = ClinicalHistorySubmission(
                 consultation_id=consultation_id,
                 version=current_submission_version + 1,
                 schema_version=1,
                 payload=payload_data,
-                source=payload.source,
+                source="patient_reported",
                 verification_status="unverified",
             )
             new_submission = True
@@ -266,12 +244,10 @@ def generate_draft_summary(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="No saved clinical history submission found",
             )
-
         submission = latest_submission
         payload = PatientResponseInput.model_validate(submission.payload)
 
     assert payload is not None
-
     red_flags = RedFlagService.evaluate_red_flags(payload)
 
     duration_str = (
@@ -280,24 +256,17 @@ def generate_draft_summary(
         if payload.symptom_details.duration
         else ""
     )
-
-    associated_symptoms_text = (
-        ", ".join(payload.associated_symptoms)
-        if payload.associated_symptoms
-        else "Not provided"
-    )
-
+    associated_symptoms_text = ", ".join(payload.associated_symptoms) if payload.associated_symptoms else "Not provided"
     hpi = (
         f"Patient reports {payload.chief_complaint} {duration_str}. "
         f"Severity: {payload.symptom_details.severity or 'unspecified'}. "
         f"Progression: {payload.symptom_details.progression or 'unspecified'}. "
         f"Associated symptoms: {associated_symptoms_text}."
     )
-
     medication_list = [
         {
             "name": medication,
-            "source_type": payload.source,
+            "source_type": "patient_reported",
             "status": "unverified",
         }
         for medication in payload.current_medications
@@ -311,7 +280,6 @@ def generate_draft_summary(
         )
         or 0
     ) + 1
-
     summary_payload = {
         "chief_complaint": payload.chief_complaint,
         "history_of_present_illness": hpi,
@@ -322,10 +290,6 @@ def generate_draft_summary(
     }
 
     try:
-        # FIX: flush a newly created submission first. SQLAlchemy's column
-        # default may not assign submission.id until INSERT/flush. Creating
-        # ClinicalSummary before this point can leave source_submission_id=None
-        # and trigger the NOT NULL/FK constraint, which previously returned 409.
         if new_submission:
             db.add(submission)
             db.flush()
@@ -337,7 +301,6 @@ def generate_draft_summary(
             payload=summary_payload,
             review_status="pending_doctor_approval",
         )
-
         db.add(summary)
         db.flush()
 
@@ -348,6 +311,7 @@ def generate_draft_summary(
                 severity=alert.severity,
                 trigger=alert.trigger,
                 action_required=alert.action_required,
+                review_status="pending_review",
             )
             for alert in red_flags
         ]
@@ -381,16 +345,14 @@ def get_saved_summary(
     consultation_id: uuid.UUID,
     db: Session = Depends(get_db),
 ):
-    """Retrieve the latest persisted summary and its red-flag findings."""
+    """Retrieve the latest persisted summary and red-flag findings."""
     require_consultation(db, consultation_id)
-
     summary = db.scalar(
         select(ClinicalSummary)
         .where(ClinicalSummary.consultation_id == consultation_id)
         .order_by(ClinicalSummary.version.desc())
         .limit(1)
     )
-
     if summary is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -402,7 +364,6 @@ def get_saved_summary(
         .where(ClinicalRedFlag.summary_id == summary.id)
         .order_by(ClinicalRedFlag.created_at, ClinicalRedFlag.id)
     ).all()
-
     return build_summary_response(summary, alerts)
 
 
@@ -415,9 +376,7 @@ async def process_patient_speech(
 ):
     """Transcribe audio for an existing consultation or request text fallback."""
     require_consultation(db, consultation_id)
-
     contents = await file.read()
-
     try:
         transcript = await SpeechService.transcribe_audio_chunk(
             contents,
@@ -429,13 +388,9 @@ async def process_patient_speech(
     if not transcript:
         return {
             "status": "fallback_required",
-            "message": (
-                "Speech recognition is unavailable or failed. "
-                "Please use text input."
-            ),
+            "message": "Speech recognition is unavailable or failed. Please use text input.",
             "transcript": None,
         }
-
     return {
         "status": "success",
         "transcript": transcript,
