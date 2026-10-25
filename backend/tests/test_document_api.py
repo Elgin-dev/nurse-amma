@@ -1,6 +1,9 @@
 from collections.abc import Generator
+from io import BytesIO
 from uuid import uuid4
 
+import fitz
+from PIL import Image
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
@@ -121,7 +124,24 @@ def _fake_extraction(text: str, method: str = "Test extraction"):
     return _extract
 
 
-def _upload_pdf(client: TestClient, consultation_id: str, content: bytes = b"%PDF-test-content"):
+def _valid_pdf_bytes(text: str = "Synthetic test report") -> bytes:
+    document = fitz.open()
+    page = document.new_page()
+    page.insert_text((72, 72), text)
+    content = document.tobytes()
+    document.close()
+    return content
+
+
+def _valid_image_bytes(image_format: str) -> bytes:
+    buffer = BytesIO()
+    Image.new("RGB", (2, 2), color=(255, 255, 255)).save(buffer, format=image_format)
+    return buffer.getvalue()
+
+
+def _upload_pdf(client: TestClient, consultation_id: str, content: bytes | None = None):
+    if content is None:
+        content = _valid_pdf_bytes()
     return client.post(
         f"/api/v1/consultations/{consultation_id}/documents",
         files={"file": ("blood-report.pdf", content, "application/pdf")},
@@ -136,7 +156,8 @@ def test_upload_persists_document_and_extraction_and_supports_retrieval(
     )
     consultation_id = _create_consultation(client)
 
-    upload = _upload_pdf(client, consultation_id)
+    original_content = _valid_pdf_bytes("Persistence test report")
+    upload = _upload_pdf(client, consultation_id, original_content)
     assert upload.status_code == 200, upload.text
     uploaded = upload.json()
     document_id = uploaded["id"]
@@ -144,7 +165,7 @@ def test_upload_persists_document_and_extraction_and_supports_retrieval(
     assert uploaded["consultation_id"] == consultation_id
     assert uploaded["filename"] == "blood-report.pdf"
     assert uploaded["file_extension"] == ".pdf"
-    assert uploaded["file_size_bytes"] == len(b"%PDF-test-content")
+    assert uploaded["file_size_bytes"] == len(original_content)
     assert uploaded["processing_status"] == "completed"
     assert uploaded["text"] == "Hemoglobin: 13.2 g/dL"
     assert uploaded["entities"][0]["name"] == "Hemoglobin"
@@ -168,7 +189,7 @@ def test_reprocess_uses_persisted_original_bytes_and_updates_result(
     client: TestClient, monkeypatch
 ) -> None:
     consultation_id = _create_consultation(client)
-    original_bytes = b"%PDF-original-bytes-for-reprocessing"
+    original_bytes = _valid_pdf_bytes("Original bytes for reprocessing")
     monkeypatch.setattr(
         documents_router, "_extract_bytes", _fake_extraction("First extraction")
     )
@@ -213,7 +234,8 @@ def test_failed_extraction_is_saved_and_visible_in_consultation_list(
         raise ValueError("Invalid test document")
 
     monkeypatch.setattr(documents_router, "_extract_bytes", fail_extraction)
-    upload = _upload_pdf(client, consultation_id)
+    original_content = _valid_pdf_bytes("Failure persistence test")
+    upload = _upload_pdf(client, consultation_id, original_content)
     assert upload.status_code == 400, upload.text
 
     list_response = client.get(f"/api/v1/consultations/{consultation_id}/documents")
@@ -223,8 +245,8 @@ def test_failed_extraction_is_saved_and_visible_in_consultation_list(
     document = listing["documents"][0]
     assert document["filename"] == "blood-report.pdf"
     assert document["processing_status"] == "failed"
-    assert document["error_message"] == "Invalid test document"
-    assert document["file_size_bytes"] == len(b"%PDF-test-content")
+    assert document["error_message"] == "The document could not be parsed or is invalid."
+    assert document["file_size_bytes"] == len(original_content)
 
 
 def test_clinician_cannot_read_or_reprocess_another_users_document(
@@ -281,3 +303,189 @@ def test_clinician_cannot_read_or_reprocess_another_users_document(
     final_list = client.get(f"/api/v1/consultations/{consultation_id}/documents")
     assert final_list.status_code == 200, final_list.text
     assert final_list.json()["count"] == 1
+
+
+
+def test_legacy_upload_contract_accepts_file_without_consultation_id(
+    client: TestClient, monkeypatch
+) -> None:
+    """Legacy clients may still post only a file and receive extraction output."""
+    monkeypatch.setattr(
+        documents_router, "_extract_bytes", _fake_extraction("Legacy result text")
+    )
+    response = client.post(
+        "/api/v1/documents/upload",
+        files={"file": ("legacy-report.pdf", _valid_pdf_bytes("Legacy report"), "application/pdf")},
+    )
+
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["filename"] == "legacy-report.pdf"
+    assert result["text"] == "Legacy result text"
+    assert result["verification_status"] == "unverified"
+    assert "id" not in result  # no consultation was supplied, so this is not persisted
+
+
+def test_compatibility_upload_can_persist_when_consultation_id_is_supplied(
+    client: TestClient, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        documents_router, "_extract_bytes", _fake_extraction("Persistent compatibility result")
+    )
+    consultation_id = _create_consultation(client)
+    response = client.post(
+        "/api/v1/documents/upload",
+        data={"consultation_id": consultation_id},
+        files={"file": ("compat-report.pdf", _valid_pdf_bytes("Compatibility report"), "application/pdf")},
+    )
+
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["consultation_id"] == consultation_id
+    assert result["filename"] == "compat-report.pdf"
+    assert result["processing_status"] == "completed"
+
+
+def test_upload_rejects_malformed_pdf_with_valid_header_before_persisting(
+    client: TestClient, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        documents_router, "_extract_bytes", _fake_extraction("must not run")
+    )
+    consultation_id = _create_consultation(client)
+    response = client.post(
+        f"/api/v1/consultations/{consultation_id}/documents",
+        files={
+            "file": (
+                "malformed.pdf",
+                b"%PDF-1.7\nThis has a PDF header but no valid PDF structure.",
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 400
+    listing = client.get(f"/api/v1/consultations/{consultation_id}/documents")
+    assert listing.status_code == 200
+    assert listing.json()["count"] == 0
+
+
+def test_upload_rejects_declared_mime_mismatch_before_persisting(
+    client: TestClient, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        documents_router, "_extract_bytes", _fake_extraction("must not run")
+    )
+    consultation_id = _create_consultation(client)
+    response = client.post(
+        f"/api/v1/consultations/{consultation_id}/documents",
+        files={"file": ("wrong-type.pdf", b"%PDF-valid-signature", "image/png")},
+    )
+
+    assert response.status_code == 400
+    assert "content type" in response.json()["detail"].lower()
+    listing = client.get(f"/api/v1/consultations/{consultation_id}/documents")
+    assert listing.status_code == 200
+    assert listing.json()["count"] == 0
+
+
+def test_upload_rejects_invalid_pdf_signature_before_persisting(
+    client: TestClient, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        documents_router, "_extract_bytes", _fake_extraction("must not run")
+    )
+    consultation_id = _create_consultation(client)
+    response = client.post(
+        f"/api/v1/consultations/{consultation_id}/documents",
+        files={"file": ("not-a-pdf.pdf", b"plain text pretending to be PDF", "application/pdf")},
+    )
+
+    assert response.status_code == 400
+    assert "content" in response.json()["detail"].lower()
+    listing = client.get(f"/api/v1/consultations/{consultation_id}/documents")
+    assert listing.status_code == 200
+    assert listing.json()["count"] == 0
+
+
+@pytest.mark.parametrize(
+    ("filename", "mime_type", "content"),
+    [
+        ("valid-image.png", "image/png", _valid_image_bytes("PNG")),
+        ("valid-image.jpg", "image/jpeg", _valid_image_bytes("JPEG")),
+    ],
+)
+def test_upload_accepts_supported_image_signatures(
+    client: TestClient, monkeypatch, filename: str, mime_type: str, content: bytes
+) -> None:
+    monkeypatch.setattr(
+        documents_router, "_extract_bytes", _fake_extraction("Synthetic image OCR result")
+    )
+    consultation_id = _create_consultation(client)
+    response = client.post(
+        f"/api/v1/consultations/{consultation_id}/documents",
+        files={"file": (filename, content, mime_type)},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["processing_status"] == "completed"
+    assert response.json()["verification_status"] == "unverified"
+
+
+def test_upload_rejects_empty_file_before_persisting(client: TestClient) -> None:
+    consultation_id = _create_consultation(client)
+    response = client.post(
+        f"/api/v1/consultations/{consultation_id}/documents",
+        files={"file": ("empty.pdf", b"", "application/pdf")},
+    )
+
+    assert response.status_code == 400
+    listing = client.get(f"/api/v1/consultations/{consultation_id}/documents")
+    assert listing.status_code == 200
+    assert listing.json()["count"] == 0
+
+
+def test_upload_rejects_file_over_10mb_before_persisting(client: TestClient) -> None:
+    consultation_id = _create_consultation(client)
+    content = b"%PDF-" + (b"x" * (10 * 1024 * 1024))
+    response = client.post(
+        f"/api/v1/consultations/{consultation_id}/documents",
+        files={"file": ("oversized.pdf", content, "application/pdf")},
+    )
+
+    assert response.status_code == 413
+    listing = client.get(f"/api/v1/consultations/{consultation_id}/documents")
+    assert listing.status_code == 200
+    assert listing.json()["count"] == 0
+
+
+def test_persistence_forces_document_and_entities_to_unverified(
+    client: TestClient, monkeypatch
+) -> None:
+    consultation_id = _create_consultation(client)
+
+    def falsely_verified_extraction(content: bytes, suffix: str, filename: str) -> dict:
+        return {
+            "filename": filename,
+            "text": "Synthetic data",
+            "entities": [
+                {
+                    "entity_type": "laboratory_result",
+                    "name": "Glucose",
+                    "value": "95",
+                    "unit": "mg/dL",
+                    "verification_status": "verified",
+                }
+            ],
+            "page_count": 1,
+            "extraction_method": "Test extraction",
+            "verification_status": "verified",
+        }
+
+    monkeypatch.setattr(documents_router, "_extract_bytes", falsely_verified_extraction)
+    response = _upload_pdf(client, consultation_id)
+
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["verification_status"] == "unverified"
+    assert result["entities"][0]["verification_status"] == "unverified"
