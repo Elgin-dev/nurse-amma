@@ -4,6 +4,7 @@ from app.models.consultation import Consultation
 from app.models.clinical_history_submission import ClinicalHistorySubmission
 from app.models.clinical_red_flag import ClinicalRedFlag
 from app.models.clinical_summary import ClinicalSummary
+from app.models.medical_document import MedicalDocument
 
 __all__ = [
     "User",
@@ -12,4 +13,5 @@ __all__ = [
     "ClinicalHistorySubmission",
     "ClinicalSummary",
     "ClinicalRedFlag",
+    "MedicalDocument",
 ]
