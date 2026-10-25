@@ -5,15 +5,20 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.session import engine
-from app.routers import clinical_history, consultations, patients
+from app.routers import (
+    clinical_history,
+    consultations,
+    documents,
+    patients,
+)
 
 
-# Initialize FastAPI app with Nurse Amma metadata.
 app = FastAPI(
     title="Nurse Amma API",
     description=(
-        "AI-Powered Multimodal Clinical History-Taking and Medical Document Intelligence "
-        "System for Pre-Consultation Healthcare"
+        "AI-Powered Multimodal Clinical History-Taking "
+        "and Medical Document Intelligence System "
+        "for Pre-Consultation Healthcare"
     ),
     version="1.0.0",
     docs_url="/docs",
@@ -34,17 +39,22 @@ app.add_middleware(
 )
 
 
-# Member 1: Clinical History Engine.
+# Member 1: Clinical history, speech, and summary services.
 app.include_router(clinical_history.router)
 
-# Member 3: Patient Management.
+# Member 3: Patient management.
 app.include_router(patients.router)
 
-# Member 3: Consultation Management.
+# Member 3: Consultation management.
 app.include_router(consultations.router)
 
-# Member 2: Document Intelligence will be registered
-# when that router has been implemented.
+# Member 2: Medical document processing and OCR.
+# The document router defines the "/documents" prefix.
+# This creates routes under "/api/v1/documents".
+app.include_router(
+    documents.router,
+    prefix="/api/v1",
+)
 
 
 @app.get("/", tags=["Health Check"])
@@ -52,7 +62,7 @@ async def root():
     """Return API status information."""
     return {
         "status": "online",
-        "service": "Nurse Amma API Engine",
+        "service": "Nurse Amma API",
         "version": "1.0.0",
         "documentation": "/docs",
     }
@@ -60,17 +70,12 @@ async def root():
 
 @app.get("/health", tags=["Health Check"])
 def health_check():
-    """Check API health and actual database connectivity."""
-
+    """Check API health and database connectivity."""
     try:
-        # Execute a lightweight query against the configured database.
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
 
-        database_status = "connected"
-
     except SQLAlchemyError:
-        # Do not expose database credentials or internal error details.
         return JSONResponse(
             status_code=503,
             content={
@@ -80,7 +85,7 @@ def health_check():
                     "clinical_history": "registered",
                     "patient_management": "registered",
                     "consultation_management": "registered",
-                    "document_intelligence": "pending_integration",
+                    "document_intelligence": "registered",
                     "doctor_dashboard": "pending_integration",
                 },
             },
@@ -88,12 +93,12 @@ def health_check():
 
     return {
         "status": "healthy",
-        "database": database_status,
+        "database": "connected",
         "modules": {
             "clinical_history": "active",
             "patient_management": "active",
             "consultation_management": "active",
-            "document_intelligence": "pending_integration",
+            "document_intelligence": "active",
             "doctor_dashboard": "pending_integration",
         },
     }
