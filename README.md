@@ -202,3 +202,16 @@ The Medical Document Intelligence module covers:
 ## Disclaimer
 
 Nurse Amma is a software project for healthcare assistance and document processing. Extracted results should not be used for clinical decisions without appropriate professional verification.
+## Backend Authentication and Document Upload Setup
+
+The application reads `.env` from the repository root. Never commit this file or share its secrets.
+
+Required settings: `DATABASE_URL`, `JWT_SECRET_KEY`, and `BOOTSTRAP_ADMIN_TOKEN`. `ACCESS_TOKEN_EXPIRE_MINUTES` is optional and defaults to 60.
+
+Generate cryptographically random secrets locally using Python `secrets.token_urlsafe`. Add the generated values to the root `.env` file. Never put real secret values in documentation.
+
+Create the initial administrator using `POST /api/v1/auth/bootstrap` with the `X-Bootstrap-Token` header. Authenticate using `POST /api/v1/auth/login` and the returned bearer token.
+
+The consultation document endpoint is `POST /api/v1/consultations/{consultation_id}/documents`. The compatibility endpoint `POST /api/v1/documents/upload` accepts file-only requests for extraction without persistence; adding `consultation_id` enables persistence.
+
+PDF, PNG, JPG, and JPEG uploads are limited to 10 MB and must match their declared file type. Extracted laboratory results remain `unverified` until reviewed through an authorized clinical workflow.

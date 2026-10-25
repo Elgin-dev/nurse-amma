@@ -1,35 +1,31 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.core.authorization import require_patient_access
+from app.core.security import get_current_user
 from app.db.session import get_db
-from app.models import Patient
+from app.models.patient import Patient
+from app.models.user import User
 from app.schemas.patient import PatientCreate, PatientResponse
 
 
-router = APIRouter(
-    prefix="/api/v1/patients",
-    tags=["Patients"],
-)
+router = APIRouter(prefix="/api/v1/patients", tags=["Patients"])
 
 
-@router.post(
-    "",
-    response_model=PatientResponse,
-    status_code=status.HTTP_201_CREATED,
-)
+@router.post("", response_model=PatientResponse, status_code=status.HTTP_201_CREATED)
 def create_patient(
     payload: PatientCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Patient:
     patient = Patient(
         full_name=payload.full_name,
         date_of_birth=payload.date_of_birth,
+        created_by_user_id=current_user.id,
     )
-
     try:
         db.add(patient)
         db.commit()
@@ -43,22 +39,10 @@ def create_patient(
         ) from exc
 
 
-@router.get(
-    "/{patient_id}",
-    response_model=PatientResponse,
-)
+@router.get("/{patient_id}", response_model=PatientResponse)
 def get_patient(
     patient_id: UUID,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Patient:
-    patient = db.scalar(
-        select(Patient).where(Patient.id == patient_id)
-    )
-
-    if patient is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Patient not found.",
-        )
-
-    return patient
+    return require_patient_access(db, patient_id, current_user)
