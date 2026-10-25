@@ -1,14 +1,15 @@
 # Nurse Amma — Development Status
 
-**Last updated:** 25 October 2026
-**Project:** Nurse Amma — AI-Powered Multimodal Clinical History-Taking and Medical Document Intelligence System
-**Responsible member:** Member 3 — Backend, Database, Frontend and Integration
-**Repository:** [Elgin-dev/nurse-amma](https://github.com/Elgin-dev/nurse-amma)
-**Current local branch:** `integration/backend-foundation`
-**Integration commit:** `03c9801` — `merge: integrate backend foundation with speech and NLP`
-**Publication status:** Integration branch has been pushed to GitHub and **PR #1 is open**.
+- **Last updated:** 25 October 2026
+- **Project:** Nurse Amma — AI-Powered Multimodal Clinical History-Taking and Medical Document Intelligence System
+- **Responsible member:** Member 3 — Backend, Database, Frontend and Integration
+- **Repository:** [Elgin-dev/nurse-amma](https://github.com/Elgin-dev/nurse-amma)
+- **Working branch:** `integration/backend-foundation`
+- **Latest verified code-fix commit:** `4d9a852`
+- **Pull request:** [PR #1 — integration/backend-foundation](https://github.com/Elgin-dev/nurse-amma/pull/1)
+**Publication status:** Integration branch is pushed to GitHub and PR #1 is open. The PR has not been confirmed merged.
 
-> **Current status:** The database foundation and the latest speech/NLP code are integrated on `integration/backend-foundation` and published for review in PR #1. The clinical-history router validates consultation UUIDs and preserves the speech endpoint. The latest local test run reports **17 passed, 1 non-blocking warning**. Clinical-history responses and summaries are still not persisted. This is not yet an end-to-end application.
+> **Current status:** The database foundation, patient/consultation APIs, clinical-history routes, speech route, and NLP components are integrated on `integration/backend-foundation`. Copilot's four review findings were addressed in commit `4d9a852`, and the branch was pulled locally. The latest local backend test run reported **21 passed, 1 non-blocking warning**. `git diff --check origin/main...HEAD` produced no output and `git status -sb` showed a clean tree after that pull. Confirm the PR's latest checks and review-thread state on GitHub before merging. Clinical-history responses, summaries, and red flags are still not persisted as a complete record. This is not yet an end-to-end application.
 
 ---
 
@@ -20,7 +21,7 @@ Nurse Amma is an AI-assisted pre-consultation healthcare application intended to
 
 `Patient intake → Clinical history → Document processing → Medical timeline → Draft clinical summary → Healthcare professional review`
 
-The application organizes information; it does not autonomously diagnose diseases or prescribe treatment. Use synthetic patients and documents during development. Never commit real patient information, private medical documents, credentials, or API keys.
+The application organizes information; it does not autonomously diagnose diseases or prescribe treatment. Use synthetic patient records and documents during development. Do not commit real patient information, private medical documents, credentials, or API keys.
 
 ### Team ownership
 
@@ -30,29 +31,40 @@ The application organizes information; it does not autonomously diagnose disease
 | Member 2 | Medical document processing, OCR, entity extraction, and timeline generation |
 | Member 3 | Shared backend, database and migrations, patient/consultation APIs, frontend, doctor dashboard, and system integration |
 
-Members should maintain their own modules and coordinate shared schemas, models, and API changes rather than duplicate each other's work.
+Team members should maintain their own modules and coordinate shared schemas, models, and API changes rather than duplicating each other's work.
 
 ---
 
-## 2. Current Remote and Local Git State
+## 2. Current Git and Pull Request State
 
-The following state was verified locally after fetching the remote branches. Re-run `git fetch --all --prune` before relying on these remote references for a later integration decision.
+The branch references below reflect the last verified local Git state. Run `git fetch --all --prune` before relying on remote references for a later integration decision.
 
 | Branch/reference | Commit | Meaning |
 |---|---|---|
-| `origin/main` | `6866fc6` | Latest fetched main; includes the speech endpoint and NLP extractor |
-| `origin/feature/backend-foundation` | `23afeab` | Database foundation, patient/consultation APIs, migration, and health check |
-| `origin/feature/clinical-history` | `9c613ce` | Earlier clinical-history implementation; ancestor of the fetched `main` |
-| Local `integration/backend-foundation` | `03c9801` | Local merge commit integrating backend foundation with the fetched main branch |
+| `origin/main` | `6866fc6` (last recorded fetched reference) | Main branch used as the integration base; includes the speech endpoint and NLP extractor at that fetched point |
+| `origin/feature/backend-foundation` | `23afeab` (last recorded reference) | Database foundation, patient/consultation APIs, migration, and health check |
+| `origin/feature/clinical-history` | `9c613ce` (last recorded reference) | Earlier clinical-history implementation; recorded as an ancestor of the fetched `main` |
+| `integration/backend-foundation` | Contains code-fix commit `4d9a852` | Integration branch published for review in PR #1 |
 
-### Pending local work
+### Integration history
 
-- `backend/app/routers/clinical_history.py` — reconciled to validate consultation UUIDs while retaining `/process-speech`; pushed on `integration/backend-foundation` and under review in PR #1.
-- `backend/tests/test_clinical_history_api.py` — API integration tests were committed and pushed with the clinical-history validation changes.
-- `docs/development-status.md` — kept current as integration and review status changes.
-- `stash@{0}` — retained as a recovery copy of the earlier clinical-history validation change. Do not drop it until the final changes are committed, pushed, and verified on GitHub.
+- `03c9801` — `merge: integrate backend foundation with speech and NLP`
+- `9ca4cf8` — `fix: validate clinical history against consultations`
+- `4d9a852` — latest code-fix batch addressing Copilot review findings and adding tests
 
-The integration branch was created from the fetched `origin/main`; the backend-foundation changes merged without conflicts, and merge commit `03c9801` was created locally. The branch is now published and PR #1 is open for review. Do not push directly to `main`.
+The exact branch HEAD may advance when this status document is committed or when additional review fixes are made. Use `git log -5 --oneline --decorate` to confirm the current HEAD.
+
+### Pull request status
+
+- PR #1 targets `main` from `integration/backend-foundation`.
+- The integration branch and Copilot code-fix batch are pushed to GitHub.
+- The latest local backend tests passed: 21 passed, 1 non-blocking warning.
+- Do not consider the PR merged until GitHub explicitly shows the merged state.
+- Do not push ordinary development directly to `main`; use the reviewed pull request workflow.
+
+### Retained Git stash
+
+`stash@{0}` was retained as a recovery copy of earlier clinical-history validation work. Keep it until the PR has been reviewed and merged and the remote state has been verified. Afterward, inspect the stash before deciding whether to drop it; do not drop it automatically.
 
 ---
 
@@ -64,18 +76,18 @@ The integration branch was created from the fetched `origin/main`; the backend-f
 | Database | PostgreSQL 18.6, Psycopg 3 |
 | ORM and migrations | SQLAlchemy 2.x, Alembic |
 | Tests | pytest, FastAPI TestClient, HTTPX |
-| Speech/NLP | Speech route and deterministic NLP extractor are present; Whisper is optional and not installed in the current `.venv` |
-| Document processing | Dependencies are declared, but the upload/OCR/entity pipeline is not implemented |
+| Speech/NLP | Speech route and deterministic NLP extractor are present; Whisper is optional and not installed in the recorded `.venv` environment |
+| Document processing | Dependencies may be declared, but the complete upload/OCR/entity pipeline is not implemented |
 | Frontend target | React, TypeScript, Vite; not yet implemented |
-| Configuration | Local `.env` (ignored by Git) and `.env.example` (tracked on the integration branch) |
+| Configuration | Local `.env` (ignored by Git) and `.env.example` (tracked) |
 
 ### Environment notes
 
-- Use the repository's `.venv` with Python **3.11.9**. The default system `python` has been observed to resolve to Python 3.10.11 and does not have the project test/migration packages installed.
-- `.env` contains local database configuration and must never be committed or copied into the status document.
+- Use the repository `.venv` with Python **3.11.9**. The system `python` has previously resolved to Python 3.10.11 and does not contain all project test/migration dependencies.
+- `.env` contains local database configuration and must never be committed or copied into this status document.
 - `.venv/`, `.env`, bytecode, and test caches are local/generated files and should remain untracked.
-- Core dependencies are installed in `.venv`; `pip check` previously reported no broken requirements.
-- The optional AI dependencies (including `openai-whisper` and PyTorch) are not installed. Core backend tests should not require them. Install optional AI packages only when real inference/OCR implementation is scheduled and after checking platform compatibility.
+- `pip check` previously reported no broken requirements.
+- Optional AI packages including `openai-whisper` and PyTorch were not installed in the recorded environment. Core backend tests should not require them. Install optional AI packages only when real inference is scheduled and after checking platform compatibility.
 
 ---
 
@@ -83,38 +95,41 @@ The integration branch was created from the fetched `origin/main`; the backend-f
 
 | Component | Status | Evidence / limitation |
 |---|---|---|
-| Central FastAPI application | Implemented and locally inspected | `backend/app/main.py`; one shared application |
+| Central FastAPI application | Implemented | `backend/app/main.py`; one shared application |
 | Root endpoint | Implemented | `GET /` |
-| Database-backed health check | Implemented and tested | Executes `SELECT 1`; returns HTTP 503 on SQLAlchemy database errors |
+| Database-backed health check | Implemented and tested | Executes a database query; returns HTTP 503 on SQLAlchemy database errors |
 | Environment configuration | Implemented | `backend/app/core/config.py`, `.env.example` |
 | SQLAlchemy session and base | Implemented | `backend/app/db/session.py`, `backend/app/db/base.py` |
-| Patient model/API | Implemented and locally tested | UUID model, create/retrieve endpoints |
-| Consultation model/API | Implemented and locally tested | UUID model, patient foreign key, create/retrieve endpoints |
-| Initial Alembic migration | Applied locally | Revision `14b36a1e2a74`; creates `patients` and `consultations` tables and patient index |
-| Clinical question engine | Implemented; unit-tested | Deterministic fever, cough, and abdominal-pain pathways plus fallback |
-| Red-flag service | Partially implemented; unit-tested | Two initial hard-coded rules; requires broader testing and agreed clinical review |
-| NLP extractor | Implemented, limited scope | Deterministic duration/severity extraction; must not turn unknown values into asserted facts |
+| Patient model/API | Implemented and locally tested | UUID model; create and retrieve endpoints |
+| Consultation model/API | Implemented and locally tested | UUID model, patient foreign key; create and retrieve endpoints |
+| Initial Alembic migration | Applied locally previously | Revision `14b36a1e2a74`; creates `patients` and `consultations` tables and patient index |
+| Clinical question engine | Implemented; unit-tested | Deterministic fever, cough, abdominal-pain pathways and fallback |
+| Red-flag service | Partially implemented; unit-tested | Initial hard-coded rules; needs broader coverage and clinical review |
+| NLP extractor | Implemented, limited scope | Deterministic duration/severity extraction; must not convert unknown values into asserted facts |
 | Speech endpoint | Implemented in code | `POST /api/v1/consultations/{consultation_id}/process-speech`; returns text fallback if transcription is unavailable |
-| Whisper loading | Refactored to lazy-load | Core imports work without Whisper. Real transcription has not been verified because Whisper is not installed |
-| Clinical-history consultation validation | Implemented and pushed | UUID consultation IDs are checked against the database; missing consultations return 404 |
-| Summary body/path ID consistency | Implemented and pushed | Conflicting or invalid body IDs are rejected with HTTP 422 |
+| Whisper loading | Lazy-loaded and moved to thread pool | Core imports work without Whisper; real transcription has not been verified because Whisper is not installed |
+| Consultation validation in clinical-history routes | Implemented | UUID consultation IDs are checked against the database; missing consultations return HTTP 404 |
+| Summary body/path ID consistency | Implemented | Invalid or mismatched body IDs are rejected with HTTP 422 |
+| HTTP 422 compatibility | Updated | Uses a compatibility-safe status code fallback for Starlette versions that lack the newer constant |
+| Consultation language validation | Implemented and tested | Normalizes whitespace/case and rejects a normalized value shorter than two characters |
+| Speech temporary-file cleanup | Implemented | Cleanup is attempted in `finally`, including when transcription fails |
 | Clinical-history response persistence | Not implemented | No response model/migration or saved-response workflow |
 | Summary/red-flag persistence | Not implemented | Draft summary and flags are returned in memory only |
-| Summary retrieval/update/review | Not implemented | No saved-summary GET/PATCH or professional review API |
-| Document upload/storage/OCR | Not implemented | Dependencies only; no completed document pipeline |
+| Summary retrieval/update/review | Not implemented | No persisted-summary GET/PATCH or professional-review API |
+| Document upload/storage/OCR | Not implemented | Complete document-processing pipeline remains future work |
 | Medical entity provenance and timeline | Not implemented | No persistent entities/timeline models or APIs |
-| React patient interface | Not implemented | No `frontend/` application yet |
+| React patient interface | Not implemented | No completed frontend application |
 | Doctor dashboard | Not implemented | No frontend or review workflow |
 | Authentication/authorization | Not implemented | Required before exposing real patient data or review operations |
-| End-to-end workflow | Not implemented | No test covering the full history-to-document-to-summary-to-review flow |
+| End-to-end workflow | Not implemented | No test covers the full history-to-document-to-summary-to-review flow |
 | README/onboarding | Incomplete | Root README needs reproducible backend, database, migration, and eventual frontend setup instructions |
-| CI | Not evidenced | No verified workflow running tests and migration checks |
+| CI | Not verified | No current passing CI workflow has been confirmed in this status record |
 
 ---
 
 ## 5. Current API Surface
 
-OpenAPI inspection on the integration branch showed these paths:
+The following paths were found during local OpenAPI inspection. Confirm current paths in `/docs` after future changes.
 
 | Method | Path | Purpose/status |
 |---|---|---|
@@ -125,31 +140,33 @@ OpenAPI inspection on the integration branch showed these paths:
 | `POST` | `/api/v1/consultations` | Create a consultation for an existing patient |
 | `GET` | `/api/v1/consultations/{consultation_id}` | Retrieve a consultation |
 | `POST` | `/api/v1/consultations/{consultation_id}/next-question` | Generate next clinical-history question; validates consultation locally |
-| `POST` | `/api/v1/consultations/{consultation_id}/summary` | Generate an in-memory draft summary; validates consultation and rejects mismatched IDs locally |
-| `POST` | `/api/v1/consultations/{consultation_id}/process-speech` | Process uploaded audio or return text fallback; consultation validation added locally |
+| `POST` | `/api/v1/consultations/{consultation_id}/summary` | Generate an in-memory draft summary; validates consultation and rejects mismatched IDs |
+| `POST` | `/api/v1/consultations/{consultation_id}/process-speech` | Process uploaded audio or return text fallback; validates consultation |
 
-The endpoints above were confirmed in the local OpenAPI path list. This does not mean the full clinical workflow is complete. The summary endpoint still does not persist a saved draft, and real Whisper inference remains unverified.
+The summary endpoint still does not persist a saved draft. Real Whisper inference remains unverified.
 
 ---
 
 ## 6. Latest Verification Results
 
-**Last recorded local verification:** 24 October 2026.
+**Latest recorded local verification:** 25 October 2026, after pulling commit `4d9a852`.
 
 | Check | Result |
 |---|---|
-| Full test suite on integrated local branch | `17 passed, 1 warning` |
+| Backend test suite | **`21 passed, 1 warning`** |
 | Warning | Non-blocking Starlette/HTTPX deprecation warning from `TestClient` |
-| OpenAPI path inspection | Patient, consultation, clinical-history, speech, root, and health paths found |
+| `git diff --check origin/main...HEAD` | Passed; no output reported |
+| `git status -sb` after pull and verification | Clean; branch tracked `origin/integration/backend-foundation` |
+| OpenAPI path inspection | Patient, consultation, clinical-history, speech, root, and health paths were found in the earlier integration check |
 | PostgreSQL connectivity | Previously verified using the project `.venv` |
-| Alembic current revision | `14b36a1e2a74 (head)` |
-| `alembic check` | `No new upgrade operations detected` |
-| `git diff --check` | Passed after the latest documentation whitespace fix, before final documentation replacement |
+| Alembic current revision | Previously reported as `14b36a1e2a74 (head)` |
+| `alembic check` | Previously reported `No new upgrade operations detected` |
 | Clean-database migration test from scratch | Not yet verified |
 | Real Whisper transcription | Not verified; optional Whisper package/model unavailable |
 | End-to-end frontend workflow | Not implemented / not verified |
+| Current GitHub PR checks | Must be checked on PR #1 before merging |
 
-The tests use isolated SQLite fixtures for API tests. Passing these tests does not replace a PostgreSQL migration/CRUD test or prove that the complete application works end-to-end.
+The API tests use isolated SQLite fixtures. Passing them does not replace a PostgreSQL migration/CRUD test or prove that the complete application works end-to-end. The HTTPX/Starlette deprecation warning did not fail the test run; do not change dependencies merely to silence it without checking compatibility.
 
 ---
 
@@ -184,42 +201,42 @@ The tests use isolated SQLite fixtures for API tests. Passing these tests does n
 **Status:** Committed and pushed on `feature/backend-foundation`.
 
 - Commit: `23afeab` — `fix: report actual database health`
-- `/health` now performs a real database query and reports HTTP 503 when the database check fails.
+- `/health` performs a real database query and reports HTTP 503 when the database check fails.
 - Added tests for healthy and unavailable database behavior.
 
-### Milestone 4 — Local backend + speech/NLP integration
+### Milestone 4 — Backend and speech/NLP integration
 
-**Status:** Merge and follow-up clinical-history validation changes committed and pushed; PR #1 is open.
+**Status:** Published in PR #1; awaiting final review/merge confirmation.
 
-- Started a new `integration/backend-foundation` branch from fetched `origin/main` at `6866fc6`.
+- Started `integration/backend-foundation` from fetched `origin/main` at `6866fc6`.
 - Merged the backend foundation without file conflicts.
 - Merge commit: `03c9801` — `merge: integrate backend foundation with speech and NLP`.
-- Retained the speech endpoint and refactored Whisper to load lazily rather than at import time.
-- Replaced the speech test's real-model assumption with a deterministic mocked model test and removed the dependency on `pytest-asyncio`.
 - Reconciled clinical-history routes to validate consultation UUIDs while retaining speech processing.
-- Local test suite reports 17 passed, with one non-blocking warning.
+- Added clinical-history API tests and updated the development status document.
+- Code-fix commit `4d9a852` addresses Copilot findings concerning HTTP 422 compatibility, normalized language length, synchronous Whisper processing, temporary-file cleanup, and related tests/status corrections.
+- Latest recorded test result after pulling the fix batch: 21 passed, 1 non-blocking warning.
 
 ---
 
 ## 8. Current Known Gaps
 
-### P0 — Must address next
+### Priority 0 — Address next
 
-1. Agree on shared clinical-history input/response, summary, provenance, and review-state contracts with Member 1.
-2. Persist clinical-history responses, generated summaries, and red-flag results in PostgreSQL.
-3. Add summary retrieval and persistence-focused tests.
-4. Address review feedback on PR #1 and keep the integration branch up to date with verified fixes.
+1. Finish reviewing and merging PR #1 after verifying all review comments and required checks.
+2. Agree on the shared clinical-history input/response, summary, provenance, and review-state contracts with Member 1.
+3. Persist clinical-history responses, generated summaries, and red-flag results in PostgreSQL.
+4. Add summary retrieval and persistence-focused tests.
 5. Reconcile `docs/project-specification.md` examples and folder layout with the canonical UUID/API convention and actual `backend/alembic/` location.
 
-### P1 — After clinical-history persistence
+### Priority 1 — After clinical-history persistence
 
 1. Coordinate with Member 2 on document metadata, file storage, OCR output, entity provenance, errors, and timeline contracts.
 2. Implement document upload validation and controlled storage.
 3. Implement text extraction/OCR and source-linked medical entities.
 4. Add PostgreSQL integration tests and fresh-database migration checks.
-5. Expand README setup instructions and define a repeatable dependency installation workflow.
+5. Expand README setup instructions and define repeatable dependency installation steps.
 
-### P2 — User interface and access control
+### Priority 2 — User interface and access control
 
 1. Build a React/TypeScript/Vite patient-intake flow after the API contracts stabilize.
 2. Build the doctor dashboard for summaries, red flags, sources, corrections, and review status.
@@ -244,17 +261,18 @@ Coordinate with Member 1 before adding shared database models. Confirm:
 - Whether to store each answer as a separate row, a structured payload per submission, or both.
 - Summary schema and versioning behavior when a summary is regenerated.
 - Shared provenance states for patient-reported, document-extracted, AI-generated, unknown, and clinician-verified information.
-- Allowed review statuses and who may change them.
+- Allowed review statuses and which role may change them.
+- How red flags are stored, acknowledged, and associated with a specific consultation and summary version.
 
-Proposed initial approach: store a structured response snapshot and generated summary as versioned records linked by foreign key to the existing consultation; keep provenance and review status explicit. Finalize this with the module owner before creating the migration.
+**Proposed approach for discussion:** store a structured response snapshot and generated summary as versioned records linked by foreign key to the existing consultation; keep provenance and review status explicit. Finalize this with the module owner before creating the migration.
 
 ### Acceptance criteria
 
 - A non-existent consultation returns HTTP 404 from relevant history and speech operations.
 - Invalid/mismatched identifiers are rejected consistently.
-- Submitted history and generated summaries are stored and can be retrieved after separate requests.
+- Submitted history and generated summaries are stored and can be retrieved in separate requests.
 - Red-flag output is stored with its explanation and review state.
-- A new draft is not automatically marked clinician-approved.
+- A newly generated draft is not automatically marked clinician-approved.
 - Tests cover successful persistence, retrieval, invalid consultations, ID conflicts, and rollback behavior.
 - A PostgreSQL migration is applied and checked locally.
 - All existing tests remain green.
@@ -263,7 +281,7 @@ Proposed initial approach: store a structured response snapshot and generated su
 
 ## 10. Local Verification Commands
 
-Run these from PowerShell. Use the project interpreter explicitly if the system Python points to a different version.
+Run these from PowerShell. Use the project interpreter explicitly if system Python points to a different version.
 
 ### Full test suite
 
@@ -281,7 +299,7 @@ cd C:\Projects\nurse-amma\backend
 & "..\.venv\Scripts\python.exe" -m alembic check
 ```
 
-Expected current revision for the existing foundation migration: `14b36a1e2a74`.
+Expected existing foundation revision: `14b36a1e2a74`, subject to confirming the current database and branch state.
 
 ### Start the API
 
@@ -302,6 +320,7 @@ git diff --check
 git diff --cached --check
 git diff --cached --stat
 git diff --cached --name-only
+git log -5 --oneline --decorate
 ```
 
 Never stage `.env`, `.venv`, caches, secrets, API keys, or real patient information.
@@ -314,21 +333,22 @@ Never stage `.env`, `.venv`, caches, secrets, API keys, or real patient informat
 - Use SQLAlchemy models and Alembic migrations for database schema changes.
 - Agree on shared schemas and identifiers with the owning member before changing cross-module contracts.
 - Member 1 owns clinical conversation logic and red-flag rule content; coordinate shared persistence with them rather than rewriting their module without review.
-- Member 2 owns document processing logic; agree on document storage, entity output, and source references before implementing dependent database/API work.
+- Member 2 owns document-processing logic; agree on document storage, entity output, and source references before implementing dependent database/API work.
 - Keep AI-generated information distinct from patient-reported, document-extracted, unknown, and clinician-verified information.
 - Use synthetic records and synthetic medical documents only.
-- Run tests before committing; inspect all staged files.
-- Do not push ordinary work directly to `main`. Use the integration branch and a reviewed pull request.
-- Update this document after each meaningful, verified milestone; preserve historical test counts as historical records rather than rewriting them.
+- Run tests before committing and inspect all staged files.
+- Do not push ordinary work directly to `main`; use an integration branch and reviewed pull request.
+- Update this document after each meaningful, verified milestone. Preserve previous counts as historical results rather than presenting them as current results.
 
 ---
 
 ## 12. Immediate Next Actions
 
-1. Address all open PR #1 review findings and push verified fixes on `integration/backend-foundation`.
-2. Rerun the backend test suite after each meaningful fix batch.
-3. Keep `stash@{0}` until review feedback is resolved and remote verification is complete; then decide whether to drop the recovery stash.
-4. Ask Member 1 to review the proposed clinical-history persistence contract before creating the next migration.
-5. Proceed with persistence implementation only after review feedback is fully resolved.
+1. Verify the current PR #1 state on GitHub, including all four Copilot review findings, review conversations, and required CI checks.
+2. Replace the repository's `docs/development-status.md` with this updated document and commit/push the documentation correction on `integration/backend-foundation`.
+3. Merge PR #1 only after review findings and required checks are resolved and the project's review requirements are satisfied.
+4. After merging, verify the resulting `main` branch and inspect `stash@{0}` before deciding whether it can be dropped.
+5. Ask Member 1 to review the proposed clinical-history persistence contract before creating the next migration.
+6. Implement persistence only after the shared contract is agreed.
 
 **Primary success criterion:** a reproducible, tested, integrated application—not merely separate modules that exist in the repository.
