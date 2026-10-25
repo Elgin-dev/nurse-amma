@@ -1,6 +1,10 @@
 from collections.abc import Generator
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+from time import sleep
 
 import pytest
+from fastapi import HTTPException, status
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -11,6 +15,8 @@ from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 from app.models.user import User
+from app.routers import auth as auth_router
+from app.schemas.auth import BootstrapAdminRequest
 
 
 @pytest.fixture
@@ -106,6 +112,62 @@ def test_bootstrap_is_only_available_once(auth_client: TestClient):
         json={"email": "second-admin@nurseamma.test", "password": "another-secure-password-123"},
     )
     assert response.status_code == 409
+
+
+def test_bootstrap_remains_single_admin_under_concurrent_requests(monkeypatch, tmp_path):
+    test_db_path = tmp_path / "bootstrap-concurrency.db"
+    test_engine = create_engine(
+        f"sqlite:///{test_db_path}",
+        connect_args={"check_same_thread": False},
+    )
+    Base.metadata.create_all(bind=test_engine)
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+
+    monkeypatch.setattr(settings, "jwt_secret_key", "test-only-jwt-secret-that-is-long-enough-123456")
+    monkeypatch.setattr(settings, "bootstrap_admin_token", "test-only-bootstrap-token-for-tests-123456")
+
+    barrier = Barrier(2)
+    original_hash_password = auth_router.hash_password
+
+    def slow_hash_password(password: str) -> str:
+        sleep(0.05)
+        return original_hash_password(password)
+
+    monkeypatch.setattr(auth_router, "hash_password", slow_hash_password)
+
+    def do_bootstrap(email: str) -> int:
+        session = TestingSessionLocal()
+        try:
+            barrier.wait(timeout=2)
+            auth_router.bootstrap_first_admin(
+                BootstrapAdminRequest.model_validate(
+                    {"email": email, "password": "a-secure-test-password-123"}
+                ),
+                db=session,
+                bootstrap_token="test-only-bootstrap-token-for-tests-123456",
+            )
+            return status.HTTP_201_CREATED
+        except HTTPException as exc:
+            return exc.status_code
+        finally:
+            session.close()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(do_bootstrap, "admin-one@nurseamma.test")
+        second = executor.submit(do_bootstrap, "admin-two@nurseamma.test")
+        statuses = sorted([first.result(timeout=5), second.result(timeout=5)])
+
+    assert statuses == [status.HTTP_201_CREATED, status.HTTP_409_CONFLICT]
+
+    verification_session = TestingSessionLocal()
+    try:
+        created_users = verification_session.query(User).all()
+        assert len(created_users) == 1
+        assert created_users[0].role == "admin"
+    finally:
+        verification_session.close()
+        Base.metadata.drop_all(bind=test_engine)
+        test_engine.dispose()
 
 
 def test_admin_can_create_clinician_account(auth_client: TestClient):

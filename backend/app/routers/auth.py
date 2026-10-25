@@ -1,7 +1,7 @@
 import hmac
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -19,6 +19,17 @@ from app.schemas.auth import (
 
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
+
+
+def _acquire_bootstrap_lock(db: Session) -> None:
+    dialect_name = db.get_bind().dialect.name
+    if dialect_name == "sqlite":
+        db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        return
+    if dialect_name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": 2214489126073503101})
+        return
+    db.scalar(select(User.id).limit(1).with_for_update())
 
 
 def require_admin(user: User = Depends(get_current_user)) -> User:
@@ -47,17 +58,22 @@ def bootstrap_first_admin(
     if not bootstrap_token or not hmac.compare_digest(bootstrap_token, expected):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid bootstrap token")
 
-    existing_user_id = db.scalar(select(User.id).limit(1))
-    if existing_user_id is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Bootstrap is only available before the first account exists")
-
-    admin = User(
-        email=payload.email,
-        password_hash=hash_password(payload.password),
-        role="admin",
-        is_active=True,
-    )
     try:
+        _acquire_bootstrap_lock(db)
+        existing_user_id = db.scalar(select(User.id).limit(1))
+        if existing_user_id is not None:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Bootstrap is only available before the first account exists",
+            )
+
+        admin = User(
+            email=payload.email,
+            password_hash=hash_password(payload.password),
+            role="admin",
+            is_active=True,
+        )
         db.add(admin)
         db.commit()
         db.refresh(admin)
