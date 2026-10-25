@@ -100,3 +100,14 @@ artifacts/
 !requirements.txt
 !package.json
 !package-lock.json
+
+# Keep Nurse Amma SQLAlchemy models in version control
+!backend/app/models/
+!backend/app/models/**
+
+
+# Exclude generated Python bytecode inside the application models directory
+backend/app/models/__pycache__/
+backend/app/models/**/__pycache__/
+backend/app/models/*.py[cod]
+backend/app/models/**/*.py[cod]
