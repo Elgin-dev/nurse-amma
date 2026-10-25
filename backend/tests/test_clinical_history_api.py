@@ -8,9 +8,10 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
+from app.core.security import get_current_user
 from app.db.session import get_db
 from app.main import app
-from app.models import ClinicalHistorySubmission, ClinicalRedFlag, ClinicalSummary
+from app.models import ClinicalHistorySubmission, ClinicalRedFlag, ClinicalSummary, User
 
 
 @pytest.fixture
@@ -44,8 +45,27 @@ def client(testing_session_local) -> Generator[TestClient, None, None]:
         finally:
             db.close()
 
+    # These endpoint tests use an administrator identity while testing the
+    # clinical-history behavior itself. Authentication is tested independently
+    # in test_auth_api.py.
+    test_admin_id = uuid4()
+    with testing_session_local() as db:
+        db.add(User(
+            id=test_admin_id,
+            email="test-admin@nurseamma.test",
+            password_hash="unused-in-this-dependency-override",
+            role="admin",
+            is_active=True,
+        ))
+        db.commit()
+
+    def override_current_user():
+        with testing_session_local() as db:
+            return db.get(User, test_admin_id)
+
     previous_overrides = app.dependency_overrides.copy()
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = override_current_user
     try:
         with TestClient(app) as test_client:
             yield test_client
@@ -312,3 +332,34 @@ def test_summary_and_red_flags_are_persisted(client: TestClient, testing_session
     )
     assert retrieved.status_code == 200
     assert retrieved.json()["red_flags"][0]["review_status"] == "pending_review"
+
+
+def test_clinician_cannot_access_another_clinicians_consultation(
+    client: TestClient, testing_session_local,
+):
+    consultation_id = create_consultation(client)
+    clinician_id = uuid4()
+    with testing_session_local() as db:
+        db.add(User(
+            id=clinician_id,
+            email="other-clinician@nurseamma.test",
+            password_hash="unused-in-this-dependency-override",
+            role="clinician",
+            is_active=True,
+        ))
+        db.commit()
+
+    def override_other_clinician():
+        with testing_session_local() as db:
+            return db.get(User, clinician_id)
+
+    old_dependency = app.dependency_overrides[get_current_user]
+    app.dependency_overrides[get_current_user] = override_other_clinician
+    try:
+        response = client.get(
+            f"/api/v1/consultations/{consultation_id}/summary"
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Consultation not found"
+    finally:
+        app.dependency_overrides[get_current_user] = old_dependency

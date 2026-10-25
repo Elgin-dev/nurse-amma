@@ -14,11 +14,14 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.authorization import require_consultation_access
+from app.core.security import get_current_user
 from app.db.session import get_db
 from app.models.clinical_history_submission import ClinicalHistorySubmission
 from app.models.clinical_red_flag import ClinicalRedFlag
 from app.models.clinical_summary import ClinicalSummary
 from app.models.consultation import Consultation
+from app.models.user import User
 from app.schemas.clinical_history import (
     DraftSummaryResponse,
     NextQuestionResponse,
@@ -41,22 +44,6 @@ HTTP_422_UNPROCESSABLE = getattr(
     "HTTP_422_UNPROCESSABLE_CONTENT",
     422,
 )
-
-
-def require_consultation(db: Session, consultation_id: uuid.UUID) -> Consultation:
-    """Return an existing consultation or raise HTTP 404.
-
-    NOTE: this checks existence only. It is not an authorization check. Protected
-    clinical endpoints must be integrated with the project's real authentication
-    and consultation-access policy before they are exposed beyond local development.
-    """
-    consultation = db.get(Consultation, consultation_id)
-    if consultation is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Consultation not found",
-        )
-    return consultation
 
 
 def build_summary_response(
@@ -98,6 +85,7 @@ def save_clinical_history_response(
     consultation_id: uuid.UUID,
     payload: PatientResponseInput,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Persist a versioned, explicitly patient-reported history snapshot."""
     try:
@@ -114,6 +102,7 @@ def save_clinical_history_response(
             detail="consultation_id in request body must match the URL",
         )
 
+    require_consultation_access(db, consultation_id, current_user)
     consultation = db.scalar(
         select(Consultation)
         .where(Consultation.id == consultation_id)
@@ -169,9 +158,10 @@ def get_next_question(
     chief_complaint: str,
     answered_keys: list[str] | None = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Generate the next question for an existing consultation."""
-    require_consultation(db, consultation_id)
+    """Generate the next question for an authorized consultation."""
+    require_consultation_access(db, consultation_id, current_user)
     return QuestionEngine.get_next_question(chief_complaint, answered_keys or [])
 
 
@@ -183,12 +173,14 @@ def generate_draft_summary(
     consultation_id: uuid.UUID,
     payload: PatientResponseInput | None = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Generate and persist a draft summary and its red-flag findings.
 
     A caller-supplied payload is treated as patient-reported input only. If no
     payload is supplied, the latest persisted submission is used.
     """
+    require_consultation_access(db, consultation_id, current_user)
     consultation = db.scalar(
         select(Consultation)
         .where(Consultation.id == consultation_id)
@@ -344,9 +336,10 @@ def generate_draft_summary(
 def get_saved_summary(
     consultation_id: uuid.UUID,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Retrieve the latest persisted summary and red-flag findings."""
-    require_consultation(db, consultation_id)
+    require_consultation_access(db, consultation_id, current_user)
     summary = db.scalar(
         select(ClinicalSummary)
         .where(ClinicalSummary.consultation_id == consultation_id)
@@ -373,9 +366,10 @@ async def process_patient_speech(
     language: str = Form("en"),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Transcribe audio for an existing consultation or request text fallback."""
-    require_consultation(db, consultation_id)
+    """Transcribe audio for an authorized consultation or request text fallback."""
+    require_consultation_access(db, consultation_id, current_user)
     contents = await file.read()
     try:
         transcript = await SpeechService.transcribe_audio_chunk(
