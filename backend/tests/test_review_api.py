@@ -103,7 +103,7 @@ def _create_consultation_as(client: TestClient, testing_session_local, user_id) 
     set_current_user(testing_session_local, user_id)
     patient_response = client.post(
         "/api/v1/patients",
-        json={"full_name": "Review Test Patient"},
+        json={"consent_confirmed": True, "full_name": "Review Test Patient"},
     )
     assert patient_response.status_code == 201, patient_response.text
     patient_id = patient_response.json()["id"]

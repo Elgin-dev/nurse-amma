@@ -62,7 +62,7 @@ The Alembic migration chain currently ends at `c9a1b2c3d4e5`.
 5. `d4c9f2a81e70` - Add medical document persistence
 6. `b2e8f4a1c6d9` - Add clinician review, verification, and audit trail
 7. `c9a1b2c3d4e5` - Add patient consents
-
+8. `d1e2f3a4b5c6` - Add composite timeline indexes
 ---
 
 ## 4. Latest Verification Results

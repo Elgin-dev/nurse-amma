@@ -78,7 +78,7 @@ def create_consultation(client: TestClient) -> str:
     """Create a synthetic patient and consultation through the API."""
     patient_response = client.post(
         "/api/v1/patients",
-        json={"full_name": "Integration Test Patient"},
+        json={"consent_confirmed": True, "full_name": "Integration Test Patient"},
     )
     assert patient_response.status_code == 201, patient_response.text
     patient_id = patient_response.json()["id"]

@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 class PatientCreate(BaseModel):
     full_name: str = Field(min_length=1, max_length=150)
     date_of_birth: date | None = None
+    consent_confirmed: bool = Field(default=False, description="Must be true to create a patient.")
 
     @field_validator("full_name")
     @classmethod

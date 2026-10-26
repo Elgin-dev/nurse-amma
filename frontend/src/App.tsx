@@ -256,12 +256,10 @@ export default function App() {
       report('error', 'You must confirm patient consent before creating the record.');
       return;
     }
-    const payload = { full_name: patientName.trim(), date_of_birth: dob || null };
+    const payload = { full_name: patientName.trim(), date_of_birth: dob || null,consent_confirmed: true };
     const result = await run('create-patient', async () => {
       const { data } = await request<Patient>('/api/v1/patients', { method: 'POST', body: JSON.stringify(payload) }, token);
       
-      // Record the consent immediately after the patient is created
-      await request(`/api/v1/patients/${data.id}/consent`, { method: 'POST', body: JSON.stringify({ consent_version: "1.0" }) }, token);
       
       setPatient(data); setPatientIdInput(data.id); setConsultation(null); setConsultationIdInput(''); setDocuments([]); setDocumentDetail(null); setSavedSubmission(null); setWorkspace(null); dashboardLoadedFor.current = null;
       setHasConsent(false); // Reset checkbox after success

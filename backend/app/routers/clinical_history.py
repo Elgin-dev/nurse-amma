@@ -403,6 +403,7 @@ async def process_patient_speech(
     require_consultation_access(db, consultation_id, current_user)
     
     MAX_AUDIO_SIZE = 5 * 1024 * 1024
+    transcript = None
     try:
         # Read inside try so file.close() is guaranteed to run
         contents = await file.read(MAX_AUDIO_SIZE + 1)

@@ -100,7 +100,7 @@ def no_auth_client(testing_session_local) -> Generator[TestClient, None, None]:
 def create_consultation(client: TestClient) -> str:
     patient_response = client.post(
         "/api/v1/patients",
-        json={"full_name": "Timeline Test Patient"},
+        json={"consent_confirmed": True, "full_name": "Timeline Test Patient"},
     )
     assert patient_response.status_code == 201, patient_response.text
     patient_id = patient_response.json()["id"]

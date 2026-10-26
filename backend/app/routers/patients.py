@@ -22,6 +22,13 @@ def create_patient(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Patient:
+    # ENFORCE CONSENT AT THE API BOUNDARY
+    if not payload.consent_confirmed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Patient consent must be confirmed before creating a record.",
+        )
+
     patient = Patient(
         full_name=payload.full_name,
         date_of_birth=payload.date_of_birth,
@@ -57,6 +64,8 @@ def get_patient(
     current_user: User = Depends(get_current_user),
 ) -> Patient:
     return require_patient_access(db, patient_id, current_user)
+
+
 @router.post("/{patient_id}/consent", response_model=ConsentResponse, status_code=status.HTTP_201_CREATED)
 def record_patient_consent(
     patient_id: UUID,
@@ -65,7 +74,6 @@ def record_patient_consent(
     current_user: User = Depends(get_current_user),
 ) -> PatientConsent:
     """Record explicit consent for data processing for a specific patient."""
-    # This verifies the patient exists AND that the current user owns the record
     require_patient_access(db, patient_id, current_user)
     
     consent = PatientConsent(

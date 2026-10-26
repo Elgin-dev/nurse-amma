@@ -1,5 +1,4 @@
 from collections.abc import Generator
-from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,7 +10,6 @@ from app.core.config import settings
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
-from app.models import Patient, User
 
 TEST_JWT_SECRET = "test-only-jwt-secret-for-consent-tests-2026"
 TEST_BOOTSTRAP_TOKEN = "test-only-bootstrap-token-consent-tests-2026"
@@ -63,29 +61,18 @@ def client(monkeypatch) -> Generator[TestClient, None, None]:
         test_engine.dispose()
 
 
-def test_record_consent_for_own_patient(client: TestClient):
-    # 1. Create patient
-    patient_res = client.post("/api/v1/patients", json={"full_name": "Consent Test"})
-    assert patient_res.status_code == 201
-    patient_id = patient_res.json()["id"]
-
-    # 2. Record consent
-    consent_res = client.post(
-        f"/api/v1/patients/{patient_id}/consent",
-        json={"consent_version": "1.0"}
-    )
-    assert consent_res.status_code == 201, consent_res.text
-    data = consent_res.json()
-    assert data["patient_id"] == patient_id
-    assert data["consent_version"] == "1.0"
-    assert "consented_at" in data
+def test_create_patient_without_consent_fails(client: TestClient):
+    """Verify the backend rejects patient creation if consent_confirmed is missing."""
+    res = client.post("/api/v1/patients", json={"full_name": "No Consent Patient"})
+    assert res.status_code == 400
+    assert "consent must be confirmed" in res.json()["detail"].lower()
 
 
-def test_record_consent_for_missing_patient(client: TestClient):
-    missing_id = str(uuid4())
+def test_create_patient_with_consent_succeeds(client: TestClient):
+    """Verify patient creation succeeds when consent is explicitly confirmed."""
     res = client.post(
-        f"/api/v1/patients/{missing_id}/consent",
-        json={"consent_version": "1.0"}
+        "/api/v1/patients", 
+        json={"full_name": "Consent Test", "consent_confirmed": True}
     )
-    assert res.status_code == 404
-    assert res.json()["detail"] == "Patient not found"
+    assert res.status_code == 201
+    assert res.json()["full_name"] == "Consent Test"

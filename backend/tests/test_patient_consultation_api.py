@@ -94,7 +94,7 @@ def test_create_and_retrieve_patient(client: TestClient) -> None:
     response = client.post(
         "/api/v1/patients",
         json={
-            "full_name": "Test Patient",
+            "consent_confirmed": True, "full_name": "Test Patient",
             "date_of_birth": "2000-01-15",
         },
     )
@@ -113,7 +113,7 @@ def test_create_and_retrieve_patient(client: TestClient) -> None:
 def test_create_and_retrieve_consultation(client: TestClient) -> None:
     patient_response = client.post(
         "/api/v1/patients",
-        json={"full_name": "Consultation Test Patient"},
+        json={"consent_confirmed": True, "full_name": "Consultation Test Patient"},
     )
 
     assert patient_response.status_code == 201, patient_response.text
@@ -158,7 +158,7 @@ def test_consultation_language_rejects_single_char_after_normalization(
 ) -> None:
     patient_response = client.post(
         "/api/v1/patients",
-        json={"full_name": "Language Validation Patient"},
+        json={"consent_confirmed": True, "full_name": "Language Validation Patient"},
     )
     assert patient_response.status_code == 201, patient_response.text
 
@@ -178,7 +178,7 @@ def test_consultation_language_rejects_whitespace_only(
 ) -> None:
     patient_response = client.post(
         "/api/v1/patients",
-        json={"full_name": "Language Validation Patient"},
+        json={"consent_confirmed": True, "full_name": "Language Validation Patient"},
     )
     assert patient_response.status_code == 201, patient_response.text
 
@@ -198,7 +198,7 @@ def test_consultation_language_normalizes_valid_value(
 ) -> None:
     patient_response = client.post(
         "/api/v1/patients",
-        json={"full_name": "Language Validation Patient"},
+        json={"consent_confirmed": True, "full_name": "Language Validation Patient"},
     )
     assert patient_response.status_code == 201, patient_response.text
 
@@ -217,7 +217,7 @@ def test_consultation_language_normalizes_valid_value(
 def test_patient_name_cannot_be_blank(client: TestClient) -> None:
     response = client.post(
         "/api/v1/patients",
-        json={"full_name": "   "},
+        json={"consent_confirmed": True, "full_name": "   "},
     )
 
     assert response.status_code == 422
