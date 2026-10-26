@@ -3,7 +3,18 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, LargeBinary, String, Text, Uuid, func
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    JSON,
+    LargeBinary,
+    String,
+    Text,
+    Uuid,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -18,6 +29,13 @@ class MedicalDocument(Base):
     """
 
     __tablename__ = "medical_documents"
+
+    __table_args__ = (
+        CheckConstraint(
+            "verification_status IN ('unverified', 'verified', 'rejected')",
+            name="ck_medical_documents_verification_status",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
     consultation_id: Mapped[UUID] = mapped_column(
@@ -49,6 +67,17 @@ class MedicalDocument(Base):
         String(32), default="unverified", server_default="unverified", nullable=False
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    verified_by_user_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    verification_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

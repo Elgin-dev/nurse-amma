@@ -5,7 +5,15 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.session import engine
-from app.routers import auth, clinical_history, consultations, documents, patients
+from app.routers import (
+    auth,
+    clinical_history,
+    consultations,
+    documents,
+    patients,
+    reviews,
+    timeline,
+)
 
 
 app = FastAPI(
@@ -35,6 +43,8 @@ app.include_router(clinical_history.router)
 app.include_router(patients.router)
 app.include_router(consultations.router)
 app.include_router(documents.router, prefix="/api/v1")
+app.include_router(timeline.router)
+app.include_router(reviews.router)
 
 
 @app.get("/", tags=["Health Check"])

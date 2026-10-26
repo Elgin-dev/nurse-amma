@@ -54,11 +54,17 @@ def build_summary_response(
     payload = summary.payload
     red_flags = [
         RedFlagAlert(
+            id=str(alert.id),
             flag_id=alert.flag_id,
             severity=alert.severity,
             trigger=alert.trigger,
             action_required=alert.action_required,
             review_status=alert.review_status,
+            reviewed_by_user_id=(
+                str(alert.reviewed_by_user_id) if alert.reviewed_by_user_id else None
+            ),
+            reviewed_at=alert.reviewed_at,
+            review_notes=alert.review_notes,
         )
         for alert in alerts
     ]
@@ -73,6 +79,15 @@ def build_summary_response(
         investigation_history=payload["investigation_history"],
         red_flags=red_flags,
         review_status=summary.review_status,
+        reviewed_by_user_id=(
+            str(summary.reviewed_by_user_id) if summary.reviewed_by_user_id else None
+        ),
+        reviewed_at=summary.reviewed_at,
+        review_notes=summary.review_notes,
+        corrected_by_user_id=(
+            str(summary.corrected_by_user_id) if summary.corrected_by_user_id else None
+        ),
+        corrected_at=summary.corrected_at,
     )
 
 
@@ -255,6 +270,9 @@ def generate_draft_summary(
         f"Progression: {payload.symptom_details.progression or 'unspecified'}. "
         f"Associated symptoms: {associated_symptoms_text}."
     )
+    if payload.answer_text:
+        question_label = payload.question_text or "the clinical follow-up question"
+        hpi += f" Patient's answer to '{question_label}': {payload.answer_text}."
     medication_list = [
         {
             "name": medication,

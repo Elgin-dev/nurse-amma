@@ -171,6 +171,11 @@ def _document_response(document: MedicalDocument) -> dict[str, Any]:
         "text": document.extracted_text,
         "entities": document.entities or [],
         "verification_status": document.verification_status,
+        "verified_by_user_id": (
+            str(document.verified_by_user_id) if document.verified_by_user_id else None
+        ),
+        "verified_at": document.verified_at,
+        "verification_notes": document.verification_notes,
         "error_message": document.error_message,
         "created_at": document.created_at,
         "updated_at": document.updated_at,
