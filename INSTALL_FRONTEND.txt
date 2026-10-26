@@ -1,0 +1,12 @@
+Nurse Amma frontend patch
+
+1. Extract this ZIP into C:\Projects\nurse-amma, preserving the frontend\ folder.
+2. Open PowerShell:
+   cd C:\Projects\nurse-amma\frontend
+   npm install
+   npm run build
+   npm run dev
+3. Open http://127.0.0.1:5173
+4. Keep the backend running at http://127.0.0.1:8000.
+
+This is an initial connected UI for existing API routes, not a declaration that the full project specification is complete. Timeline and explicit clinical review/verification actions are intentionally marked as unavailable because those backend endpoints are absent in the current OpenAPI list. Use synthetic data only. Do not commit .env or secrets.

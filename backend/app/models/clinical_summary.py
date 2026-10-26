@@ -12,6 +12,7 @@ from sqlalchemy import (
     Integer,
     JSON,
     String,
+    Text,
     UniqueConstraint,
     Uuid,
     func,
@@ -35,6 +36,10 @@ class ClinicalSummary(Base):
         CheckConstraint(
             "version >= 1",
             name="ck_clinical_summaries_version_positive",
+        ),
+        CheckConstraint(
+            "review_status IN ('pending_doctor_approval', 'approved', 'rejected', 'needs_correction')",
+            name="ck_clinical_summaries_review_status",
         ),
         ForeignKeyConstraint(
             ["consultation_id", "source_submission_id"],
@@ -78,9 +83,29 @@ class ClinicalSummary(Base):
 
     review_status: Mapped[str] = mapped_column(
         String(32),
-        default="pending",
-        server_default="pending",
+        default="pending_doctor_approval",
+        server_default="pending_doctor_approval",
         nullable=False,
+    )
+
+    reviewed_by_user_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    corrected_by_user_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    corrected_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
     created_at: Mapped[datetime] = mapped_column(

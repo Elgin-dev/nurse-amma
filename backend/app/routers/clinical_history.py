@@ -54,11 +54,17 @@ def build_summary_response(
     payload = summary.payload
     red_flags = [
         RedFlagAlert(
+            id=str(alert.id),
             flag_id=alert.flag_id,
             severity=alert.severity,
             trigger=alert.trigger,
             action_required=alert.action_required,
             review_status=alert.review_status,
+            reviewed_by_user_id=(
+                str(alert.reviewed_by_user_id) if alert.reviewed_by_user_id else None
+            ),
+            reviewed_at=alert.reviewed_at,
+            review_notes=alert.review_notes,
         )
         for alert in alerts
     ]
@@ -73,7 +79,20 @@ def build_summary_response(
         investigation_history=payload["investigation_history"],
         red_flags=red_flags,
         review_status=summary.review_status,
+        reviewed_by_user_id=(
+            str(summary.reviewed_by_user_id) if summary.reviewed_by_user_id else None
+        ),
+        reviewed_at=summary.reviewed_at,
+        review_notes=summary.review_notes,
+        corrected_by_user_id=(
+            str(summary.corrected_by_user_id) if summary.corrected_by_user_id else None
+        ),
+        corrected_at=summary.corrected_at,
     )
+def _clean_history_list(items: list[str]) -> list[str]:
+    """Remove placeholder text that users sometimes type into optional fields."""
+    invalid_values = {"not provided", "none", "unknown", "n/a", "na", "nil"}
+    return [item.strip() for item in items if item.strip().lower() not in invalid_values]
 
 
 @router.post(
@@ -123,6 +142,11 @@ def save_clinical_history_response(
     payload_data = payload.model_dump(mode="json")
     # Server-side assignment is intentional: this endpoint records patient input.
     payload_data["source"] = "patient_reported"
+    # Normalize optional lists to prevent literal "Not provided" from becoming a clinical fact.
+    payload_data["associated_symptoms"] = _clean_history_list(payload.associated_symptoms)
+    payload_data["past_medical_history"] = _clean_history_list(payload.past_medical_history)
+    payload_data["current_medications"] = _clean_history_list(payload.current_medications)
+    payload_data["allergies"] = _clean_history_list(payload.allergies)
     submission = ClinicalHistorySubmission(
         consultation_id=consultation_id,
         version=(current_version or 0) + 1,
@@ -217,6 +241,11 @@ def generate_draft_summary(
 
         payload_data = payload.model_dump(mode="json")
         payload_data["source"] = "patient_reported"
+        # Normalize optional lists to prevent literal "Not provided" from becoming a clinical fact.
+        payload_data["associated_symptoms"] = _clean_history_list(payload.associated_symptoms)
+        payload_data["past_medical_history"] = _clean_history_list(payload.past_medical_history)
+        payload_data["current_medications"] = _clean_history_list(payload.current_medications)
+        payload_data["allergies"] = _clean_history_list(payload.allergies)
         if latest_submission is not None and latest_submission.payload == payload_data:
             submission = latest_submission
         else:
@@ -255,6 +284,9 @@ def generate_draft_summary(
         f"Progression: {payload.symptom_details.progression or 'unspecified'}. "
         f"Associated symptoms: {associated_symptoms_text}."
     )
+    if payload.answer_text:
+        question_label = payload.question_text or "the clinical follow-up question"
+        hpi += f" Patient's answer to '{question_label}': {payload.answer_text}."
     medication_list = [
         {
             "name": medication,
@@ -368,25 +400,23 @@ async def process_patient_speech(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Transcribe audio for an authorized consultation or request text fallback."""
     require_consultation_access(db, consultation_id, current_user)
-    contents = await file.read()
+    
+    MAX_AUDIO_SIZE = 5 * 1024 * 1024
+    transcript = None
     try:
-        transcript = await SpeechService.transcribe_audio_chunk(
-            contents,
-            language=language,
-        )
+        # Read inside try so file.close() is guaranteed to run
+        contents = await file.read(MAX_AUDIO_SIZE + 1)
+        if len(contents) > MAX_AUDIO_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail="Audio file must not exceed 5 MB.",
+            )
+            
+        transcript = await SpeechService.transcribe_audio_chunk(contents, language=language)
     finally:
         await file.close()
 
     if not transcript:
-        return {
-            "status": "fallback_required",
-            "message": "Speech recognition is unavailable or failed. Please use text input.",
-            "transcript": None,
-        }
-    return {
-        "status": "success",
-        "transcript": transcript,
-        "language": language,
-    }
+        return {"status": "fallback_required", "message": "Speech recognition is unavailable or failed. Please use text input.", "transcript": None}
+    return {"status": "success", "transcript": transcript, "language": language}

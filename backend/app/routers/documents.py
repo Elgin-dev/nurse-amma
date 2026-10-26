@@ -6,7 +6,7 @@ import tempfile
 from typing import Any
 from uuid import UUID
 
-import fitz
+import pymupdf
 from PIL import Image
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
@@ -40,7 +40,7 @@ def _validate_file_signature(content: bytes, suffix: str) -> bool:
         if b"%PDF-" not in content[:1024]:
             return False
         try:
-            with fitz.open(stream=content, filetype="pdf") as document:
+            with pymupdf.open(stream=content, filetype="pdf") as document:
                 return document.page_count > 0
         except Exception:
             return False
@@ -171,6 +171,11 @@ def _document_response(document: MedicalDocument) -> dict[str, Any]:
         "text": document.extracted_text,
         "entities": document.entities or [],
         "verification_status": document.verification_status,
+        "verified_by_user_id": (
+            str(document.verified_by_user_id) if document.verified_by_user_id else None
+        ),
+        "verified_at": document.verified_at,
+        "verification_notes": document.verification_notes,
         "error_message": document.error_message,
         "created_at": document.created_at,
         "updated_at": document.updated_at,

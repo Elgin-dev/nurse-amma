@@ -87,7 +87,7 @@ def client(monkeypatch) -> Generator[TestClient, None, None]:
 def _create_consultation(client: TestClient) -> str:
     patient_response = client.post(
         "/api/v1/patients",
-        json={"full_name": f"Document Test Patient {uuid4().hex[:8]}"},
+        json={"consent_confirmed": True, "full_name": f"Document Test Patient {uuid4().hex[:8]}"},
     )
     assert patient_response.status_code == 201, patient_response.text
     patient_id = patient_response.json()["id"]

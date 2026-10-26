@@ -78,7 +78,7 @@ def create_consultation(client: TestClient) -> str:
     """Create a synthetic patient and consultation through the API."""
     patient_response = client.post(
         "/api/v1/patients",
-        json={"full_name": "Integration Test Patient"},
+        json={"consent_confirmed": True, "full_name": "Integration Test Patient"},
     )
     assert patient_response.status_code == 201, patient_response.text
     patient_id = patient_response.json()["id"]
@@ -363,3 +363,41 @@ def test_clinician_cannot_access_another_clinicians_consultation(
         assert response.json()["detail"] == "Consultation not found"
     finally:
         app.dependency_overrides[get_current_user] = old_dependency
+
+
+def test_history_rejects_missing_required_fields(client: TestClient):
+    consultation_id = create_consultation(client)
+    response = client.post(
+        f"/api/v1/consultations/{consultation_id}/responses",
+        json={"consultation_id": consultation_id, "chief_complaint": "fever"},
+    )
+    assert response.status_code == 422
+    assert "symptom_details" in response.text
+
+
+def test_follow_up_question_and_answer_are_persisted_and_summarized(client):
+    consultation_id = create_consultation(client)
+    payload = history_payload(consultation_id)
+    payload.update({
+        "question_key": "duration",
+        "question_text": "How long have you had the fever?",
+        "answer_text": "Two days, with mild body aches.",
+    })
+
+    saved = client.post(
+        f"/api/v1/consultations/{consultation_id}/responses",
+        json=payload,
+    )
+    assert saved.status_code == 201, saved.text
+    saved_payload = saved.json()["payload"]
+    assert saved_payload["question_key"] == "duration"
+    assert saved_payload["question_text"] == "How long have you had the fever?"
+    assert saved_payload["answer_text"] == "Two days, with mild body aches."
+    assert saved_payload["source"] == "patient_reported"
+
+    summary = client.post(
+        f"/api/v1/consultations/{consultation_id}/summary",
+        json=payload,
+    )
+    assert summary.status_code == 200, summary.text
+    assert "Two days, with mild body aches." in summary.json()["history_of_present_illness"]

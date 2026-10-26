@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import Enum
 from typing import List, Literal, Optional
 
@@ -30,12 +31,7 @@ class SymptomDetails(BaseModel):
 
 
 class PatientResponseInput(BaseModel):
-    """Structured input for this endpoint, which records patient-reported data.
-
-    The source is constrained so a caller cannot label patient-provided information
-    as document-derived or clinician-verified. Other ingestion paths should use
-    their own trusted server-side provenance assignment.
-    """
+    """Patient-reported consultation history, including the raw follow-up answer."""
 
     consultation_id: str
     chief_complaint: str
@@ -44,6 +40,10 @@ class PatientResponseInput(BaseModel):
     past_medical_history: List[str] = Field(default_factory=list)
     current_medications: List[str] = Field(default_factory=list)
     allergies: List[str] = Field(default_factory=list)
+    # Optional Q&A fields preserve backward compatibility with earlier clients.
+    question_key: Optional[str] = Field(default=None, max_length=100)
+    question_text: Optional[str] = Field(default=None, max_length=500)
+    answer_text: Optional[str] = Field(default=None, max_length=5000)
     source: Literal["patient_reported"] = "patient_reported"
 
 
@@ -56,11 +56,18 @@ class RedFlagReviewStatus(str, Enum):
 
 
 class RedFlagAlert(BaseModel):
+    # ``id`` is the persisted database UUID required for review actions.
+    # ``flag_id`` remains the rule identifier (e.g. RF-001) and is kept for
+    # backward compatibility and display.
+    id: Optional[str] = None
     flag_id: str
     severity: str = Field(..., description="high, medium, low")
     trigger: str
     action_required: str
     review_status: RedFlagReviewStatus = RedFlagReviewStatus.PENDING_REVIEW
+    reviewed_by_user_id: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+    review_notes: Optional[str] = None
 
 
 class DraftSummaryResponse(BaseModel):
@@ -74,6 +81,11 @@ class DraftSummaryResponse(BaseModel):
     investigation_history: List[dict] = Field(default_factory=list)
     red_flags: List[RedFlagAlert]
     review_status: str = "pending_doctor_approval"
+    reviewed_by_user_id: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+    review_notes: Optional[str] = None
+    corrected_by_user_id: Optional[str] = None
+    corrected_at: Optional[datetime] = None
 
 
 class NextQuestionResponse(BaseModel):
