@@ -4,7 +4,7 @@
 - **Project:** Nurse Amma — AI-Powered Multimodal Clinical History-Taking and Medical Document Intelligence System
 - **Responsible member:** Member 3 — Backend, Database, Frontend and Integration
 - **Working branch:** `feature/patient-ui-dashboard`
-- **Latest commit:** `6e80088` (feat: add clinician timeline, review, verification, and audit trail)
+- **Latest commit:** `77fa3fa` (feat: add clinician timeline, review, verification, and audit trail)
 
 > **Current status:** The core application is fully integrated end-to-end. Patient intake, consent capture, document processing, clinical history persistence, structured summarization, clinician review workflows, and the chronological medical timeline are all implemented and tested. The frontend is built and all automated tests pass. 
 
@@ -53,7 +53,7 @@ The application organizes information; it does not autonomously diagnose disease
 
 ## 3. Database Migrations
 
-The Alembic migration chain currently ends at `c9a1b2c3d4e5`.
+The Alembic migration chain currently ends at `d1e2f3a4b5c6`.
 
 1. `14b36a1e2a74` - Initial patients and consultations
 2. `932ca1bdc5db` - Clinical history persistence tables
@@ -74,7 +74,7 @@ The Alembic migration chain currently ends at `c9a1b2c3d4e5`.
 | Backend test suite | **`80 passed, 1 warning`** (Starlette/HTTPX deprecation) |
 | Frontend test suite | **`35 passed`** |
 | Frontend production build | **Passed** (`tsc --noEmit && vite build`) |
-| Alembic current / heads | `c9a1b2c3d4e5` (no drift) |
+| Alembic current / heads | `d1e2f3a4b5c6` (no drift) |
 | Browser end-to-end test | Verified with synthetic data (Patient -> Consult -> Summary -> Review -> Timeline) |
 
 ---

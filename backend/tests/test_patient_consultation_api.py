@@ -12,7 +12,8 @@ from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 from app.models import Consultation, Patient, User  # noqa: F401 - register models in metadata
-
+from sqlalchemy import func, select
+from app.models.patient_consent import PatientConsent
 
 TEST_JWT_SECRET = "test-only-jwt-secret-that-is-long-enough-123456"
 TEST_BOOTSTRAP_TOKEN = "test-only-bootstrap-token-for-tests-123456"
