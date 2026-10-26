@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.authorization import require_consultation_access
+from app.core.authorization import require_consultation_access, require_clinician_access
 from app.core.security import get_current_user
 from app.db.session import get_db
 from app.models.audit_event import AuditEvent

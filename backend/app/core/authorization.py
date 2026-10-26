@@ -7,7 +7,6 @@ from app.models.consultation import Consultation
 from app.models.patient import Patient
 from app.models.user import User
 
-
 def require_patient_access(db: Session, patient_id: UUID, user: User) -> Patient:
     """Enforce patient ownership; administrators can manage all records."""
     patient = db.get(Patient, patient_id)
@@ -30,3 +29,11 @@ def require_consultation_access(db: Session, consultation_id: UUID, user: User) 
     if patient is None or patient.created_by_user_id != user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consultation not found")
     return consultation
+
+def require_clinician_access(user: User) -> None:
+    """Ensure the user has the explicit role required to review clinical data."""
+    if user.role not in ("clinician", "admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only clinical staff may perform this action.",
+        )

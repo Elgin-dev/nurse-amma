@@ -402,7 +402,13 @@ async def process_patient_speech(
 ):
     """Transcribe audio for an authorized consultation or request text fallback."""
     require_consultation_access(db, consultation_id, current_user)
-    contents = await file.read()
+    MAX_AUDIO_SIZE = 5 * 1024 * 1024
+    contents = await file.read(MAX_AUDIO_SIZE + 1)
+    if len(contents) > MAX_AUDIO_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="Audio file must not exceed 5 MB.",
+        )
     try:
         transcript = await SpeechService.transcribe_audio_chunk(
             contents,

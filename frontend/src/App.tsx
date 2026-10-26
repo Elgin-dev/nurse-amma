@@ -823,7 +823,7 @@ export default function App() {
 
               <section className="card"><div className="card-heading"><div className="icon-chip"><ClipboardList size={18} /></div><div><h2>Start consultation</h2><p>Connect the clinical workflow to a patient record.</p></div><span className="step-no">02</span></div>
                 <form onSubmit={createConsultation} className="form-stack"><div className="field"><Label>Patient ID</Label><input value={patient?.id || patientIdInput} onChange={(e) => { setPatientIdInput(e.target.value); if (patient && patient.id !== e.target.value) setPatient(null); }} placeholder="Create or enter patient UUID" required /></div><div className="field"><Label>Language</Label><select value={language} onChange={(e) => setLanguage(e.target.value)}><option value="en">English</option><option value="ta">Tamil</option><option value="hi">Hindi</option></select></div><button className="primary-button" disabled={busy !== null || !activePatientId}>{busy === 'create-consultation' ? <LoaderCircle className="spin" size={16} /> : <ArrowRight size={16} />} Start consultation</button></form>
-                <div className="divider-label"><span>OR LOAD EXISTING CONSULTATION</span></div><form className="inline-form" onSubmit={loadConsultation}><input value={consultationIdInput} onChange={(e) => setConsultationIdInput(e.target.value)} placeholder="Consultation UUID" aria-label="Consultation ID" /><button className="secondary-button" disabled={busy !== null}>Load</button></form>
+                <div className="divider-label"><span>OR LOAD EXISTING CONSULTATION</span></div><form className="inline-form" onSubmit={loadConsultation}><input value={consultationIdInput} onChange={(e) => { setConsultationIdInput(e.target.value); setWorkspace(null); setConsultation(null); }} placeholder="Consultation UUID" aria-label="Consultation ID" /><button className="secondary-button" disabled={busy !== null}>Load</button></form>
                 {consultation && <div className="record-summary"><div><small>Consultation ID</small><code>{consultation.id}</code></div><StatusPill tone="good">Connected</StatusPill></div>}
               </section>
 
@@ -885,7 +885,7 @@ export default function App() {
               <section className="card">
                 <div className="card-heading"><div className="icon-chip"><CloudUpload size={18} /></div><div><h2>Upload medical document</h2><p>Use a synthetic PDF or image. Uploads are tied to the current consultation.</p></div></div>
                 <form className="form-stack" onSubmit={uploadDocument}>
-                  <div className="field"><Label>Consultation ID</Label><input value={consultationIdInput || consultation?.id || ''} onChange={(e) => setConsultationIdInput(e.target.value)} placeholder="Consultation UUID" required /></div>
+                  <div className="field"><Label>Consultation ID</Label><input value={consultationIdInput || consultation?.id || ''} onChange={(e) => { setConsultationIdInput(e.target.value); setWorkspace(null); setConsultation(null); }} placeholder="Consultation UUID" required /></div>
                   <label className="drop-zone">
                     <CloudUpload size={25} />
                     <strong>{selectedFile?.name || 'Choose a PDF or image'}</strong>
@@ -903,7 +903,7 @@ export default function App() {
 
               <section className="card">
                 <div className="card-heading"><div className="icon-chip"><FileText size={18} /></div><div><h2>Saved documents</h2><p>Read metadata and extraction results stored by the backend.</p></div></div>
-                <div className="field"><Label>Consultation ID</Label><input value={consultationIdInput || consultation?.id || ''} onChange={(e) => setConsultationIdInput(e.target.value)} placeholder="Consultation UUID" /></div>
+                <div className="field"><Label>Consultation ID</Label><input value={consultationIdInput || consultation?.id || ''} onChange={(e) => { setConsultationIdInput(e.target.value); setWorkspace(null); setConsultation(null); }} placeholder="Consultation UUID" /></div>
                 <button className="secondary-button" onClick={() => refreshDocuments()} disabled={busy !== null || !activeConsultationId}>{busy === 'list-documents' ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />} Refresh documents</button>
                 <div className="document-list">
                   {documents.length === 0 ? (
@@ -977,7 +977,7 @@ export default function App() {
             </div>}
 
             {tab === 'dashboard' && <div className="dashboard-layout">
-              <section className="card dashboard-toolbar"><div className="field grow"><Label>Consultation ID</Label><input value={consultationIdInput || consultation?.id || ''} onChange={(e) => setConsultationIdInput(e.target.value)} placeholder="Paste a consultation UUID" /></div><button className="primary-button" onClick={refreshDashboard} disabled={busy !== null || !activeConsultationId}>{busy === 'dashboard-consultation' ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />} Refresh workspace</button></section>
+              <section className="card dashboard-toolbar"><div className="field grow"><Label>Consultation ID</Label><input value={consultationIdInput || consultation?.id || ''} onChange={(e) => { setConsultationIdInput(e.target.value); setWorkspace(null); setConsultation(null); }} placeholder="Paste a consultation UUID" /></div><button className="primary-button" onClick={refreshDashboard} disabled={busy !== null || !activeConsultationId}>{busy === 'dashboard-consultation' ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />} Refresh workspace</button></section>
               <div className="dashboard-cards">
                 <section className="card"><div className="card-heading"><div className="icon-chip"><ClipboardList size={18} /></div><div><h2>Consultation</h2><p>Stored consultation context</p></div></div>{consultation ? <><div className="detail-line"><span>Patient ID</span><code>{consultation.patient_id}</code></div><div className="detail-line"><span>Language</span><strong>{consultation.language || '—'}</strong></div><div className="detail-line"><span>Status</span><StatusPill>{consultation.status || 'unknown'}</StatusPill></div></> : <div className="empty-state compact">Load a consultation to view its details.</div>}</section>
                 <section className="card">
