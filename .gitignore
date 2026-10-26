@@ -74,6 +74,7 @@ frontend/node_modules/
 # Frontend build output
 frontend/dist/
 frontend/build/
+test_ui.html
 
 # Frontend environment files
 frontend/.env
