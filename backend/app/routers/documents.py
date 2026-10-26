@@ -6,7 +6,7 @@ import tempfile
 from typing import Any
 from uuid import UUID
 
-import fitz
+import pymupdf
 from PIL import Image
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
@@ -40,7 +40,7 @@ def _validate_file_signature(content: bytes, suffix: str) -> bool:
         if b"%PDF-" not in content[:1024]:
             return False
         try:
-            with fitz.open(stream=content, filetype="pdf") as document:
+            with pymupdf.open(stream=content, filetype="pdf") as document:
                 return document.page_count > 0
         except Exception:
             return False

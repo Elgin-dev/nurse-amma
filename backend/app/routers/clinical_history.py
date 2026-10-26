@@ -89,6 +89,10 @@ def build_summary_response(
         ),
         corrected_at=summary.corrected_at,
     )
+def _clean_history_list(items: list[str]) -> list[str]:
+    """Remove placeholder text that users sometimes type into optional fields."""
+    invalid_values = {"not provided", "none", "unknown", "n/a", "na", "nil"}
+    return [item.strip() for item in items if item.strip().lower() not in invalid_values]
 
 
 @router.post(
@@ -138,6 +142,11 @@ def save_clinical_history_response(
     payload_data = payload.model_dump(mode="json")
     # Server-side assignment is intentional: this endpoint records patient input.
     payload_data["source"] = "patient_reported"
+    # Normalize optional lists to prevent literal "Not provided" from becoming a clinical fact.
+    payload_data["associated_symptoms"] = _clean_history_list(payload.associated_symptoms)
+    payload_data["past_medical_history"] = _clean_history_list(payload.past_medical_history)
+    payload_data["current_medications"] = _clean_history_list(payload.current_medications)
+    payload_data["allergies"] = _clean_history_list(payload.allergies)
     submission = ClinicalHistorySubmission(
         consultation_id=consultation_id,
         version=(current_version or 0) + 1,
@@ -232,6 +241,11 @@ def generate_draft_summary(
 
         payload_data = payload.model_dump(mode="json")
         payload_data["source"] = "patient_reported"
+        # Normalize optional lists to prevent literal "Not provided" from becoming a clinical fact.
+        payload_data["associated_symptoms"] = _clean_history_list(payload.associated_symptoms)
+        payload_data["past_medical_history"] = _clean_history_list(payload.past_medical_history)
+        payload_data["current_medications"] = _clean_history_list(payload.current_medications)
+        payload_data["allergies"] = _clean_history_list(payload.allergies)
         if latest_submission is not None and latest_submission.payload == payload_data:
             submission = latest_submission
         else:

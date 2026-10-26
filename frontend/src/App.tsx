@@ -102,6 +102,7 @@ export default function App() {
 
   const [patientName, setPatientName] = useState('');
   const [dob, setDob] = useState('');
+  const [hasConsent, setHasConsent] = useState(false);
   const [patient, setPatient] = useState<Patient | null>(null);
   const [patientIdInput, setPatientIdInput] = useState('');
   const [language, setLanguage] = useState('en');
@@ -251,11 +252,20 @@ export default function App() {
 
   const createPatient = async (event: FormEvent) => {
     event.preventDefault();
+    if (!hasConsent) {
+      report('error', 'You must confirm patient consent before creating the record.');
+      return;
+    }
     const payload = { full_name: patientName.trim(), date_of_birth: dob || null };
     const result = await run('create-patient', async () => {
       const { data } = await request<Patient>('/api/v1/patients', { method: 'POST', body: JSON.stringify(payload) }, token);
+      
+      // Record the consent immediately after the patient is created
+      await request(`/api/v1/patients/${data.id}/consent`, { method: 'POST', body: JSON.stringify({ consent_version: "1.0" }) }, token);
+      
       setPatient(data); setPatientIdInput(data.id); setConsultation(null); setConsultationIdInput(''); setDocuments([]); setDocumentDetail(null); setSavedSubmission(null); setWorkspace(null); dashboardLoadedFor.current = null;
-      report('success', 'Synthetic patient created and persisted.'); return data;
+      setHasConsent(false); // Reset checkbox after success
+      report('success', 'Synthetic patient created and consent recorded.'); return data;
     });
     if (result) setPatientName('');
   };
@@ -322,7 +332,6 @@ export default function App() {
     });
 
     if (result) {
-      // The current answer has already been saved before advancing, so clear it for the new question.
       setAnswerText('');
       const parsed = parseJsonObject(responseJson);
       setResponseJson(pretty(currentHistoryPayload(parsed.ok ? parsed.value : undefined, {
@@ -391,6 +400,16 @@ export default function App() {
     }
   };
 
+  const refreshTimelineSilent = async (id: string) => {
+    try {
+      const { data } = await request<unknown>(`/api/v1/consultations/${encodeURIComponent(id)}/timeline`, {}, token);
+      const events = parseTimelineEvents(data);
+      setWorkspace((current) => current && current.consultationId === id ? { ...current, timeline: events, timelineState: 'loaded' } : current);
+    } catch {
+      /* Keep the prior timeline if the refresh fails */
+    }
+  };
+
   const uploadDocument = async (event: FormEvent) => {
     event.preventDefault();
     const consultationId = (consultationIdInput.trim() || consultation?.id || '').trim();
@@ -412,6 +431,7 @@ export default function App() {
         setDocumentDetail(data);
         setSelectedFile(null);
         await refreshDocumentsSilent(consultationId);
+        await refreshTimelineSilent(consultationId);
         report('success', describeUploadResult(data));
         return data;
       } catch (error) {
@@ -448,6 +468,7 @@ export default function App() {
     if (result) {
       setDocumentDetail(result);
       if (activeConsultationId) await refreshDocumentsSilent(activeConsultationId);
+      if (activeConsultationId) await refreshTimelineSilent(activeConsultationId);
       report('success', describeUploadResult(result));
     } else if (activeConsultationId) {
       await refreshDocumentsSilent(activeConsultationId);
@@ -584,6 +605,7 @@ export default function App() {
 
     if (result) {
       applySummaryToWorkspace(id, result, 'loaded');
+      await refreshTimelineSilent(id);
       report('success', `Draft summary ${result.summary_id} saved with status ${result.review_status.replace(/_/g, ' ')}. Treat it as a draft, not a clinical decision.`);
     }
   };
@@ -639,6 +661,7 @@ export default function App() {
         throw new Error('The server did not return a recognizable reviewed summary.');
       }
       applySummaryToWorkspace(id, parsed, 'loaded');
+      await refreshTimelineSilent(id);
       setReviewNotes((prev) => {
         const next = { ...prev };
         delete next[summaryId];
@@ -671,6 +694,7 @@ export default function App() {
         throw new Error('The server did not return a recognizable corrected summary.');
       }
       applySummaryToWorkspace(id, parsed, 'loaded');
+      await refreshTimelineSilent(id);
       report('success', 'Summary correction persisted. Review status reset to pending.');
     });
   };
@@ -684,13 +708,13 @@ export default function App() {
         { method: 'POST', body: JSON.stringify({ status: newStatus, notes: null }) },
         token,
       );
-      // Re-fetch latest summary so the flag's new status and reviewer are shown.
       try {
         const { data } = await request<unknown>(`/api/v1/consultations/${encodeURIComponent(id)}/summary`, {}, token);
         const parsed = parseDraftSummary(data);
         if (parsed && belongsToConsultation(parsed.consultation_id, id)) {
           applySummaryToWorkspace(id, parsed, 'loaded');
         }
+        await refreshTimelineSilent(id);
       } catch {
         /* Do not mask a successful review if the follow-up GET fails. */
       }
@@ -707,6 +731,7 @@ export default function App() {
       );
       setDocumentDetail((current) => (current && current.id === documentId ? { ...current, ...data } : current));
       setDocuments((current) => current.map((doc) => (doc.id === documentId ? { ...doc, ...data } : doc)));
+      await refreshTimelineSilent(activeConsultationId);
       report('success', `Document verification recorded: ${newStatus}.`);
     });
   };
@@ -771,7 +796,27 @@ export default function App() {
 
             {tab === 'patient' && <div className="content-grid patient-grid">
               <section className="card"><div className="card-heading"><div className="icon-chip"><UserRound size={18} /></div><div><h2>Patient details</h2><p>Create a synthetic patient or load an existing record.</p></div><span className="step-no">01</span></div>
-                <form onSubmit={createPatient} className="form-stack"><div className="field"><Label>Patient full name</Label><input value={patientName} onChange={(e) => setPatientName(e.target.value)} placeholder="Synthetic Test Patient" required /></div><div className="field"><Label>Date of birth <span className="optional">(optional)</span></Label><input type="date" value={dob} onChange={(e) => setDob(e.target.value)} /></div><button className="primary-button" disabled={busy !== null}>{busy === 'create-patient' ? <LoaderCircle className="spin" size={16} /> : <Users size={16} />} Create patient</button></form>
+                <form onSubmit={createPatient} className="form-stack">
+                  <div className="field"><Label>Patient full name</Label><input value={patientName} onChange={(e) => setPatientName(e.target.value)} placeholder="Synthetic Test Patient" required /></div>
+                  <div className="field"><Label>Date of birth <span className="optional">(optional)</span></Label><input type="date" value={dob} onChange={(e) => setDob(e.target.value)} /></div>
+                  
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', margin: '4px 0' }}>
+                    <input 
+                      type="checkbox" 
+                      id="consent-cb" 
+                      checked={hasConsent} 
+                      onChange={(e) => setHasConsent(e.target.checked)} 
+                      style={{ marginTop: '3px' }} 
+                    />
+                    <label htmlFor="consent-cb" style={{ fontSize: '11px', lineHeight: '1.4', color: '#38564e', cursor: 'pointer' }}>
+                      I confirm I have obtained consent to process this patient's medical data.
+                    </label>
+                  </div>
+
+                  <button className="primary-button" disabled={busy !== null || !hasConsent}>
+                    {busy === 'create-patient' ? <LoaderCircle className="spin" size={16} /> : <Users size={16} />} Create patient
+                  </button>
+                </form>
                 <div className="divider-label"><span>OR LOAD BY PATIENT ID</span></div><form className="inline-form" onSubmit={loadPatient}><input value={patientIdInput} onChange={(e) => setPatientIdInput(e.target.value)} placeholder="Patient UUID" aria-label="Patient ID" /><button className="secondary-button" disabled={busy !== null}>Load</button></form>
                 {patient && <div className="record-summary"><div><small>Patient ID</small><code>{patient.id}</code></div><StatusPill tone="good">Saved</StatusPill></div>}
               </section>
