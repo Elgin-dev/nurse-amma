@@ -13,8 +13,8 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
-    op.create_index("ix_history_consultation_time", "clinical_history_submissions", ["consultation_id", "created_at", "version"])
-    op.create_index("ix_summaries_consultation_time", "clinical_summaries", ["consultation_id", "created_at", "version"])
+    op.create_index("ix_history_consultation_time", "clinical_history_submissions", ["consultation_id", "version", "created_at"])
+    op.create_index("ix_summaries_consultation_time", "clinical_summaries", ["consultation_id", "version", "created_at"])
     op.create_index("ix_documents_consultation_time", "medical_documents", ["consultation_id", "created_at", "id"])
     op.create_index("ix_audit_consultation_time", "audit_events", ["consultation_id", "created_at", "id"])
 

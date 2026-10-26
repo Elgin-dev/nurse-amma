@@ -29,6 +29,16 @@ def create_patient(
     )
     try:
         db.add(patient)
+        db.flush() # Get the patient ID without committing
+        
+        # Atomically create the consent record
+        consent = PatientConsent(
+            patient_id=patient.id,
+            consented_by_user_id=current_user.id,
+            consent_version="1.0"
+        )
+        db.add(consent)
+        
         db.commit()
         db.refresh(patient)
         return patient

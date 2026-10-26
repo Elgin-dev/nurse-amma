@@ -400,31 +400,22 @@ async def process_patient_speech(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Transcribe audio for an authorized consultation or request text fallback."""
     require_consultation_access(db, consultation_id, current_user)
+    
     MAX_AUDIO_SIZE = 5 * 1024 * 1024
-    contents = await file.read(MAX_AUDIO_SIZE + 1)
-    if len(contents) > MAX_AUDIO_SIZE:
-        raise HTTPException(
-            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-            detail="Audio file must not exceed 5 MB.",
-        )
     try:
-        transcript = await SpeechService.transcribe_audio_chunk(
-            contents,
-            language=language,
-        )
+        # Read inside try so file.close() is guaranteed to run
+        contents = await file.read(MAX_AUDIO_SIZE + 1)
+        if len(contents) > MAX_AUDIO_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail="Audio file must not exceed 5 MB.",
+            )
+            
+        transcript = await SpeechService.transcribe_audio_chunk(contents, language=language)
     finally:
         await file.close()
 
     if not transcript:
-        return {
-            "status": "fallback_required",
-            "message": "Speech recognition is unavailable or failed. Please use text input.",
-            "transcript": None,
-        }
-    return {
-        "status": "success",
-        "transcript": transcript,
-        "language": language,
-    }
+        return {"status": "fallback_required", "message": "Speech recognition is unavailable or failed. Please use text input.", "transcript": None}
+    return {"status": "success", "transcript": transcript, "language": language}
