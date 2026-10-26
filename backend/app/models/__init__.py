@@ -1,0 +1,21 @@
+from app.models.user import User
+from app.models.patient import Patient
+from app.models.consultation import Consultation
+from app.models.clinical_history_submission import ClinicalHistorySubmission
+from app.models.clinical_red_flag import ClinicalRedFlag
+from app.models.clinical_summary import ClinicalSummary
+from app.models.medical_document import MedicalDocument
+from app.models.audit_event import AuditEvent
+from app.models.patient_consent import PatientConsent  # <-- NEW
+
+__all__ = [
+    "User",
+    "Patient",
+    "Consultation",
+    "ClinicalHistorySubmission",
+    "ClinicalSummary",
+    "ClinicalRedFlag",
+    "MedicalDocument",
+    "AuditEvent",
+    "PatientConsent",  # <-- NEW
+]

@@ -1,5 +1,5 @@
 import re
-from typing import Dict, Any
+
 from app.schemas.clinical_history import SymptomDetails, Duration, DurationUnit
 
 class NLPExtractor:

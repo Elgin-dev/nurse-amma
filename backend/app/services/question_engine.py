@@ -1,4 +1,3 @@
-from typing import Dict, Any
 from app.schemas.clinical_history import NextQuestionResponse
 
 # Symptom decision pathways

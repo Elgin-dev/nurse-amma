@@ -1,4 +1,3 @@
-import pytest
 from app.schemas.clinical_history import PatientResponseInput, Duration, DurationUnit, SymptomDetails
 from app.services.question_engine import QuestionEngine
 from app.services.red_flag_service import RedFlagService

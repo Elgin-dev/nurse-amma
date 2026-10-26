@@ -1,67 +1,103 @@
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
-from app.routers import clinical_history
+from app.core.config import settings
+from app.db.session import engine
+from app.routers import (
+    auth,
+    clinical_history,
+    consultations,
+    documents,
+    patients,
+    reviews,
+    timeline,
+)
 
-# Initialize FastAPI app with Nurse Amma metadata
+
 app = FastAPI(
     title="Nurse Amma API",
     description=(
-        "AI-Powered Multimodal Clinical History-Taking and Medical Document Intelligence "
-        "System for Pre-Consultation Healthcare"
+        "AI-Powered Multimodal Clinical History-Taking "
+        "and Medical Document Intelligence System "
+        "for Pre-Consultation Healthcare"
     ),
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
 )
 
-# Configure CORS for React/TypeScript frontend communication
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Vite default dev ports
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Register Module Routers
-# Member 1: Clinical History Engine
+# Authentication routes are public only for bootstrap/login. Protected operations
+# require a signed Bearer access token and record-level authorization.
+app.include_router(auth.router)
 app.include_router(clinical_history.router)
+app.include_router(patients.router)
+app.include_router(consultations.router)
+app.include_router(documents.router, prefix="/api/v1")
+app.include_router(timeline.router)
+app.include_router(reviews.router)
 
-# Member 2: Document Intelligence Router (Placeholder for Member 2's module)
-# from app.routers import documents
-# app.include_router(documents.router)
-
-# Member 3: Consultations and Doctor Dashboard Router (Placeholder for Member 3's module)
-# from app.routers import consultations, doctor
-# app.include_router(consultations.router)
-# app.include_router(doctor.router)
+TEST_UI_PATH = Path(__file__).resolve().parent.parent / "test_ui.html"
 
 
 @app.get("/", tags=["Health Check"])
 async def root():
-    """
-    Root endpoint for health checks and API status verification.
-    """
     return {
         "status": "online",
-        "service": "Nurse Amma API Engine",
+        "service": "Nurse Amma API",
         "version": "1.0.0",
         "documentation": "/docs",
     }
 
 
+@app.get("/test-ui", include_in_schema=False)
+def test_ui():
+    return FileResponse(TEST_UI_PATH, media_type="text/html")
+
+
 @app.get("/health", tags=["Health Check"])
-async def health_check():
-    """
-    Detailed health check endpoint for monitoring backend services.
-    """
+def health_check():
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unhealthy",
+                "database": "disconnected",
+                "modules": {
+                    "authentication": "registered",
+                    "clinical_history": "registered",
+                    "patient_management": "registered",
+                    "consultation_management": "registered",
+                    "document_intelligence": "registered",
+                    "doctor_dashboard": "pending_integration",
+                },
+            },
+        )
+
     return {
         "status": "healthy",
-        "database": "connected",  # Hook into session check when DB is configured
+        "database": "connected",
         "modules": {
+            "authentication": "active",
             "clinical_history": "active",
-            "document_intelligence": "pending_integration",
+            "patient_management": "active",
+            "consultation_management": "active",
+            "document_intelligence": "active",
             "doctor_dashboard": "pending_integration",
         },
     }
