@@ -1,7 +1,7 @@
 from io import BytesIO
 from pathlib import Path
 import uuid
-
+from typing import Any, Dict, List, Literal, Optional
 from fastapi import (
     APIRouter,
     Depends,
@@ -103,7 +103,21 @@ def _clean_history_list(items: list[str]) -> list[str]:
     """Remove placeholder text that users sometimes type into optional fields."""
     invalid_values = {"not provided", "none", "unknown", "n/a", "na", "nil"}
     return [item.strip() for item in items if item.strip().lower() not in invalid_values]
-
+def _parse_duration(duration_str: Optional[str]) -> Optional[dict]:
+    """Convert '3 days' into {'value': 3, 'unit': 'days'} for SymptomDetails."""
+    if not duration_str:
+        return None
+    parts = duration_str.strip().lower().split()
+    if len(parts) < 2:
+        return None
+    try:
+        value = int(parts[0])
+    except ValueError:
+        return None
+    unit = parts[1].rstrip("s") + "s"
+    if unit not in ("hours", "days", "weeks", "months"):
+        unit = "days"
+    return {"value": value, "unit": unit}
 
 _DYNAMIC_INTAKE_RED_FLAGS = (
     "chest pain",
@@ -291,6 +305,66 @@ async def dynamic_intake(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Clinical intake engine did not return a follow-up question",
         )
+
+    # --- SAVE THE COMPLETED CHAT TO THE DATABASE ---
+    if complete:
+        duration_parsed = _parse_duration(extracted_data.duration)
+
+        extra_notes = []
+        if extracted_data.fever_mechanism:
+            extra_notes.append(f"Fever mechanism: {extracted_data.fever_mechanism}.")
+        if extracted_data.aggravating_relieving_factors:
+            extra_notes.append(
+                f"Aggravating/relieving factors: {extracted_data.aggravating_relieving_factors}."
+            )
+
+        intake_payload = {
+            "consultation_id": str(consultation_id),
+            "chief_complaint": extracted_data.chief_complaint or "Not provided",
+            "symptom_details": {
+                "duration": duration_parsed,
+                "severity": extracted_data.severity,
+                "progression": extracted_data.fever_mechanism,
+                "location": None,
+            },
+            "associated_symptoms": list(extracted_data.associated_symptoms or []),
+            "past_medical_history": [],
+            "current_medications": [],
+            "allergies": [],
+            "question_key": None,
+            "question_text": "AI conversational intake",
+            "answer_text": " ".join(extra_notes) if extra_notes else None,
+            "source": "patient_reported",
+        }
+
+        try:
+            validated_payload = PatientResponseInput.model_validate(intake_payload)
+        except Exception:
+            validated_payload = None
+
+        if validated_payload is not None:
+            latest_submission = db.scalar(
+                select(ClinicalHistorySubmission)
+                .where(ClinicalHistorySubmission.consultation_id == consultation_id)
+                .order_by(ClinicalHistorySubmission.version.desc())
+                .limit(1)
+            )
+            serialized = validated_payload.model_dump(mode="json")
+            if latest_submission is None or latest_submission.payload != serialized:
+                next_version = (latest_submission.version if latest_submission else 0) + 1
+                try:
+                    submission = ClinicalHistorySubmission(
+                        consultation_id=consultation_id,
+                        version=next_version,
+                        schema_version=1,
+                        payload=serialized,
+                        source="patient_reported",
+                        verification_status="unverified",
+                    )
+                    db.add(submission)
+                    db.commit()
+                except Exception:
+                    db.rollback()
 
     return DynamicIntakeResponse(
         status="COMPLETED" if complete else "IN_PROGRESS",

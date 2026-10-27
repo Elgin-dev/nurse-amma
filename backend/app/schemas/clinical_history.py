@@ -40,7 +40,6 @@ class PatientResponseInput(BaseModel):
     past_medical_history: List[str] = Field(default_factory=list)
     current_medications: List[str] = Field(default_factory=list)
     allergies: List[str] = Field(default_factory=list)
-    # Optional Q&A fields preserve backward compatibility with earlier clients.
     question_key: Optional[str] = Field(default=None, max_length=100)
     question_text: Optional[str] = Field(default=None, max_length=500)
     answer_text: Optional[str] = Field(default=None, max_length=5000)
@@ -72,9 +71,6 @@ class RedFlagReviewStatus(str, Enum):
 
 
 class RedFlagAlert(BaseModel):
-    # ``id`` is the persisted database UUID required for review actions.
-    # ``flag_id`` remains the rule identifier (e.g. RF-001) and is kept for
-    # backward compatibility and display.
     id: Optional[str] = None
     flag_id: str
     severity: str = Field(..., description="high, medium, low")
@@ -120,6 +116,18 @@ class ExtractedClinicalContext(BaseModel):
     associated_symptoms: List[str] = Field(default_factory=list)
     aggravating_relieving_factors: Optional[str] = None
     is_complete: bool = False
+
+    # NEW: This validator prevents the AI from crashing the backend if it returns "null" as a string.
+    @field_validator("associated_symptoms", mode="before")
+    @classmethod
+    def clean_symptoms(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, str):
+            if v.strip().lower() in ("null", "none", "", "n/a", "[]"):
+                return []
+            return [v]
+        return v
 
 
 class ChatMessagePayload(BaseModel):

@@ -1,22 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import {
-  Activity, AlertCircle, ArrowRight, BadgeCheck, ClipboardList, CloudUpload,
-  FileText, HeartPulse, LayoutDashboard, LoaderCircle, LogIn, LogOut,
+  Activity, AlertCircle, ArrowRight, ClipboardList, CloudUpload,
+  FileText, HeartPulse, LayoutDashboard, LoaderCircle, LogIn, LogOut, Mic, Send,
   RefreshCw, ShieldCheck, Stethoscope, UserRound, Users, Workflow,
 } from 'lucide-react';
-import { API_BASE, formatError, pretty, request, schemaProperties, type OpenApiDocument } from './api';
-import {
-  asStringList,
-  asSymptomDetails,
-  buildPatientResponsePayload,
-  confirmPersistedSubmission,
-  csvToList,
-  parseJsonObject,
-  validateHistorySave,
-  type JsonObject,
-  type SymptomDetails,
-} from './historyPayload';
+import { API_BASE, formatError, pretty, request } from './api';
 import {
   asDocumentList,
   describeUploadResult,
@@ -63,17 +52,7 @@ type DocumentRecord = {
   verified_at?: string;
   verification_notes?: string;
 };
-type SavedSubmission = {
-  id: string;
-  version?: number;
-  payload?: JsonObject;
-  verification_status?: string;
-  source?: string;
-};
 type Tab = 'patient' | 'records' | 'dashboard';
-type DurationUnit = 'hours' | 'days' | 'weeks' | 'months';
-
-const RESPONSES_PATH = '/api/v1/consultations/{consultation_id}/responses';
 
 function Label({ children }: { children: ReactNode }) { return <label className="field-label">{children}</label>; }
 function JsonPanel({ value }: { value: unknown }) { return <pre className="json-panel">{typeof value === 'string' ? value : pretty(value)}</pre>; }
@@ -90,7 +69,6 @@ function getText(value: unknown, keys: string[]): string {
 export default function App() {
   const [tab, setTab] = useState<Tab>('patient');
   const [apiState, setApiState] = useState<'checking' | 'online' | 'offline'>('checking');
-  const [spec, setSpec] = useState<OpenApiDocument | null>(null);
   const [token, setToken] = useState('');
   const [user, setUser] = useState<Dict | null>(null);
   const [email, setEmail] = useState('');
@@ -100,6 +78,15 @@ export default function App() {
   const [busy, setBusy] = useState<string | null>(null);
   const busyRef = useRef<string | null>(null);
 
+  // AI Chat States
+  const [chatMessages, setChatMessages] = useState<{ role: 'ai' | 'user'; text: string }[]>([
+    { role: 'ai', text: "Hello! I am Nurse Amma. Please tell me what brings you in today (e.g., 'I have a fever')." }
+  ]);
+  const [chatInput, setChatInput] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const [chatComplete, setChatComplete] = useState(false);
+
+  // Patient & Consultation States
   const [patientName, setPatientName] = useState('');
   const [dob, setDob] = useState('');
   const [hasConsent, setHasConsent] = useState(false);
@@ -108,21 +95,8 @@ export default function App() {
   const [language, setLanguage] = useState('en');
   const [consultation, setConsultation] = useState<Consultation | null>(null);
   const [consultationIdInput, setConsultationIdInput] = useState('');
-  const [chiefComplaint, setChiefComplaint] = useState('');
-  const [answeredKeys, setAnsweredKeys] = useState<string[]>([]);
-  const [questionResult, setQuestionResult] = useState<unknown>(null);
-  const [answerText, setAnswerText] = useState('');
-  const [durationValue, setDurationValue] = useState('');
-  const [durationUnit, setDurationUnit] = useState<DurationUnit>('days');
-  const [severity, setSeverity] = useState('');
-  const [progression, setProgression] = useState('');
-  const [location, setLocation] = useState('');
-  const [associatedSymptoms, setAssociatedSymptoms] = useState('');
-  const [pastMedicalHistory, setPastMedicalHistory] = useState('');
-  const [currentMedications, setCurrentMedications] = useState('');
-  const [allergies, setAllergies] = useState('');
-  const [responseJson, setResponseJson] = useState('{}');
-  const [savedSubmission, setSavedSubmission] = useState<SavedSubmission | null>(null);
+
+  // Dashboard States
   const [workspace, setWorkspace] = useState<DashboardWorkspace | null>(null);
   const dashboardSerial = useRef(0);
   const dashboardLoadedFor = useRef<string | null>(null);
@@ -130,23 +104,13 @@ export default function App() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [documentDetail, setDocumentDetail] = useState<DocumentRecord | null>(null);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
-
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
-  const [correctionDraft, setCorrectionDraft] = useState<{
-    summaryId: string;
-    cc: string;
-    hpi: string;
-    notes: string;
-  } | null>(null);
+  const [correctionDraft, setCorrectionDraft] = useState<{ summaryId: string; cc: string; hpi: string; notes: string; } | null>(null);
 
   const activeConsultationId = consultationIdInput.trim() || consultation?.id || '';
   const activeWorkspace = workspace?.consultationId === activeConsultationId ? workspace : null;
   const visibleSummary = activeWorkspace?.summary ?? null;
   const activePatientId = patient?.id || patientIdInput.trim();
-  const questionComplete = Boolean(questionResult && typeof questionResult === 'object' && (questionResult as Dict).is_complete);
-  const questionOptions = Array.isArray((questionResult as Dict | null)?.options)
-    ? ((questionResult as Dict).options as unknown[]).filter((item): item is string => typeof item === 'string')
-    : [];
 
   const report = useCallback((kind: 'success' | 'error' | 'info', text: string) => setNotice({ kind, text }), []);
   const run = useCallback(async <T,>(key: string, action: () => Promise<T>): Promise<T | undefined> => {
@@ -164,61 +128,11 @@ export default function App() {
     }
   }, [report]);
 
-  const symptomDetailsFromForm = useCallback((): SymptomDetails => {
-    const details: SymptomDetails = {};
-    const parsedDuration = Number(durationValue);
-    if (durationValue.trim() && Number.isInteger(parsedDuration) && parsedDuration > 0) {
-      details.duration = { value: parsedDuration, unit: durationUnit };
-    }
-    if (severity.trim()) details.severity = severity.trim();
-    if (progression.trim()) details.progression = progression.trim();
-    if (location.trim()) details.location = location.trim();
-    return details;
-  }, [durationValue, durationUnit, severity, progression, location]);
-
-  const currentHistoryPayload = useCallback((existing?: JsonObject, overrides?: {
-    consultationId?: string;
-    questionKey?: string;
-    questionText?: string;
-    answerText?: string;
-  }) => {
-    const questionKey = overrides?.questionKey ?? getText(questionResult, ['question_key', 'question_id', 'id', 'key']);
-    const questionText = overrides?.questionText ?? getText(questionResult, ['question_text', 'question', 'text', 'prompt']);
-    const existingDetails = asSymptomDetails(existing?.symptom_details);
-    return buildPatientResponsePayload({
-      consultationId: overrides?.consultationId ?? activeConsultationId,
-      chiefComplaint: chiefComplaint.trim(),
-      symptomDetails: { ...existingDetails, ...symptomDetailsFromForm() },
-      associatedSymptoms: csvToList(associatedSymptoms).length ? csvToList(associatedSymptoms) : asStringList(existing?.associated_symptoms),
-      pastMedicalHistory: csvToList(pastMedicalHistory).length ? csvToList(pastMedicalHistory) : asStringList(existing?.past_medical_history),
-      currentMedications: csvToList(currentMedications).length ? csvToList(currentMedications) : asStringList(existing?.current_medications),
-      allergies: csvToList(allergies).length ? csvToList(allergies) : asStringList(existing?.allergies),
-      questionKey,
-      questionText,
-      answerText: overrides?.answerText ?? answerText.trim(),
-      schemaProperties: schemaProperties(spec, RESPONSES_PATH, 'post'),
-      existing,
-    });
-  }, [
-    activeConsultationId, chiefComplaint, symptomDetailsFromForm, associatedSymptoms, pastMedicalHistory,
-    currentMedications, allergies, questionResult, answerText, spec,
-  ]);
-
   useEffect(() => {
     let alive = true;
     request('/health').then(() => { if (alive) setApiState('online'); }).catch(() => { if (alive) setApiState('offline'); });
-    request<OpenApiDocument>('/openapi.json').then(({ data }) => { if (alive) setSpec(data); }).catch(() => { if (alive) setSpec(null); });
-    return () => { alive = false; };
+      return () => { alive = false; };
   }, []);
-
-  useEffect(() => {
-    if (!spec) return;
-    setResponseJson((current) => {
-      const parsed = parseJsonObject(current);
-      if (parsed.ok && Object.keys(parsed.value).length > 0) return pretty(currentHistoryPayload(parsed.value));
-      return pretty(currentHistoryPayload());
-    });
-  }, [spec]); // eslint-disable-line react-hooks/exhaustive-deps -- seed templates once the OpenAPI document is available
 
   useEffect(() => {
     if (visibleSummary) {
@@ -231,7 +145,7 @@ export default function App() {
     } else {
       setCorrectionDraft(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-seed when the summary identity changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleSummary?.summary_id]);
 
   const login = async (event: FormEvent) => {
@@ -243,7 +157,7 @@ export default function App() {
       if (!newToken) throw new Error('Login response did not contain an access token.');
       const me = await request<Dict>('/api/v1/auth/me', {}, newToken);
       setToken(newToken); setUser(me.data); setPassword('');
-      report('success', 'Signed in. The access token is kept in memory for this browser session.');
+      report('success', 'Signed in.');
     } catch (error) { report('error', formatError(error)); }
     finally { setLoginBusy(false); }
   };
@@ -252,17 +166,12 @@ export default function App() {
 
   const createPatient = async (event: FormEvent) => {
     event.preventDefault();
-    if (!hasConsent) {
-      report('error', 'You must confirm patient consent before creating the record.');
-      return;
-    }
-    const payload = { full_name: patientName.trim(), date_of_birth: dob || null,consent_confirmed: true };
+    if (!hasConsent) { report('error', 'You must confirm patient consent before creating the record.'); return; }
+    const payload = { full_name: patientName.trim(), date_of_birth: dob || null, consent_confirmed: true };
     const result = await run('create-patient', async () => {
       const { data } = await request<Patient>('/api/v1/patients', { method: 'POST', body: JSON.stringify(payload) }, token);
-      
-      
-      setPatient(data); setPatientIdInput(data.id); setConsultation(null); setConsultationIdInput(''); setDocuments([]); setDocumentDetail(null); setSavedSubmission(null); setWorkspace(null); dashboardLoadedFor.current = null;
-      setHasConsent(false); // Reset checkbox after success
+      setPatient(data); setPatientIdInput(data.id); setConsultation(null); setConsultationIdInput(''); setDocuments([]); setDocumentDetail(null); setWorkspace(null); dashboardLoadedFor.current = null;
+      setHasConsent(false);
       report('success', 'Synthetic patient created and consent recorded.'); return data;
     });
     if (result) setPatientName('');
@@ -282,8 +191,9 @@ export default function App() {
     if (!patientId) { report('error', 'Create or load a patient first.'); return; }
     const result = await run('create-consultation', async () => {
       const { data } = await request<Consultation>('/api/v1/consultations', { method: 'POST', body: JSON.stringify({ patient_id: patientId, language }) }, token);
-      setConsultation(data); setConsultationIdInput(data.id); setQuestionResult(null); setAnsweredKeys([]); setAnswerText(''); setDocuments([]); setSavedSubmission(null); setWorkspace(null); dashboardLoadedFor.current = null;
-      setResponseJson(pretty(currentHistoryPayload({ consultation_id: data.id }, { consultationId: data.id, questionKey: '', questionText: '', answerText: '' })));
+      setConsultation(data); setConsultationIdInput(data.id); setWorkspace(null); dashboardLoadedFor.current = null;
+      setChatMessages([{ role: 'ai', text: "Hello! I am Nurse Amma. Please tell me what brings you in today (e.g., 'I have a fever')." }]);
+      setChatComplete(false); // Reset chat complete state
       report('success', 'Consultation created.'); return data;
     });
     if (result) setTab('patient');
@@ -299,103 +209,88 @@ export default function App() {
       try {
         const loadedPatient = await request<Patient>(`/api/v1/patients/${encodeURIComponent(result.patient_id)}`, {}, token);
         setPatient(loadedPatient.data);
-      } catch {
-        /* Consultation is usable even if the patient record cannot be refreshed separately. */
-      }
-      report('success', 'Consultation loaded. Use this ID for questions, document upload and summary operations.');
+      } catch { /* */ }
+      setChatComplete(false); // Reset chat complete state
+      report('success', 'Consultation loaded.');
     }
   };
 
-  const getNextQuestion = async () => {
-    const lastSavedAnswer = getText(savedSubmission?.payload, ['answer_text', 'answer']).trim();
-    if (answerText.trim() && answerText.trim() !== lastSavedAnswer) {
-      report('error', 'Save the current patient answer before requesting the next question.');
+  // --- AI CHAT FUNCTIONS ---
+  const sendChatMessage = async () => {
+    if (!chatInput.trim() || !activeConsultationId) return;
+    const userText = chatInput.trim();
+    
+    // 1. Build the history format the backend expects
+    const newHistory = [
+      ...chatMessages.map((msg) => ({
+        role: msg.role === 'ai' ? 'assistant' : 'user',
+        content: msg.text,
+      })),
+      { role: 'user', content: userText }
+    ];
+
+    // 2. Add to UI
+    setChatMessages((prev) => [...prev, { role: 'user', text: userText }]);
+    setChatInput('');
+
+    await run('chat-send', async () => {
+      try {
+        const { data } = await request<any>(
+          `/api/v1/consultations/${encodeURIComponent(activeConsultationId)}/dynamic-intake`,
+          { 
+            method: 'POST', 
+            // 3. Send the correct payload
+            body: JSON.stringify({ 
+              consultation_id: activeConsultationId, 
+              chat_history: newHistory 
+            }) 
+          },
+          token
+        );
+        
+        // 4. Display AI response
+        const aiText = data.next_question || data.status || "Data recorded. Please continue.";
+        setChatMessages((prev) => [...prev, { role: 'ai', text: aiText }]);
+        
+        if (data.status === 'EMERGENCY_ESCALATION') {
+           report('error', 'EMERGENCY: ' + aiText);
+        } else if (data.extracted_data?.is_complete) {
+           setChatComplete(true);
+           report('success', 'AI has collected enough history. Click below to view the summary.');
+        }
+      } catch (error) {
+        setChatMessages((prev) => [...prev, { role: 'ai', text: "Sorry, I had trouble connecting to the AI service." }]);
+      }
+    });
+  };
+
+  const startListening = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      report('error', 'Your browser does not support speech recognition. Please use Chrome or Edge.');
       return;
     }
-    if (!activeConsultationId) { report('error', 'Create or load a consultation first.'); return; }
-    if (!chiefComplaint.trim()) { report('error', 'Enter the patient-reported chief complaint first.'); return; }
-
-    const result = await run('next-question', async () => {
-      const query = new URLSearchParams();
-      query.set('chief_complaint', chiefComplaint.trim());
-      answeredKeys.forEach((key) => query.append('answered_keys', key));
-      const path = `/api/v1/consultations/${encodeURIComponent(activeConsultationId)}/next-question?${query.toString()}`;
-      const { data } = await request<unknown>(path, { method: 'POST' }, token);
-      setQuestionResult(data);
-      const complete = Boolean(data && typeof data === 'object' && (data as Dict).is_complete);
-      report('success', complete
-        ? 'This pathway has no further required questions. Review and save the current history snapshot if needed.'
-        : "Next clinical question loaded. Enter the patient's answer, then save the response.");
-      return data;
-    });
-
-    if (result) {
-      setAnswerText('');
-      const parsed = parseJsonObject(responseJson);
-      setResponseJson(pretty(currentHistoryPayload(parsed.ok ? parsed.value : undefined, {
-        questionKey: getText(result, ['question_key', 'question_id', 'id', 'key']),
-        questionText: getText(result, ['question_text', 'question', 'text', 'prompt']),
-        answerText: '',
-      })));
-    }
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+    recognition.onstart = () => setIsListening(true);
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setChatInput(transcript);
+      setIsListening(false);
+    };
+    recognition.onerror = () => setIsListening(false);
+    recognition.onend = () => setIsListening(false);
+    recognition.start();
   };
 
-  const prepareResponseJson = () => {
-    const parsed = parseJsonObject(responseJson);
-    const payload = currentHistoryPayload(parsed.ok ? parsed.value : undefined);
-    setResponseJson(pretty(payload));
-    report('info', 'Response payload prepared from the current form and the history request schema. Confirm it before saving.');
-  };
-
-  const saveResponse = async () => {
-    const parsed = parseJsonObject(responseJson);
-    if (!parsed.ok) { report('error', parsed.error); return; }
-    const validation = validateHistorySave({
-      consultationId: activeConsultationId,
-      chiefComplaint,
-      answerText,
-      hasQuestion: questionResult !== null,
-      questionComplete,
-    });
-    if (validation) { report('error', validation); return; }
-
-    const payload = currentHistoryPayload(parsed.value);
-    setResponseJson(pretty(payload));
-    const previousAnswer = answerText;
-
-    const result = await run('save-response', async () => {
-      const { data, status } = await request<unknown>(
-        `/api/v1/consultations/${encodeURIComponent(activeConsultationId)}/responses`,
-        { method: 'POST', body: JSON.stringify(payload) },
-        token,
-      );
-      const saved = confirmPersistedSubmission(status, data);
-      setSavedSubmission(saved);
-      if (questionResult && !questionComplete) {
-        const questionKey = getText(questionResult, ['question_key', 'question_id', 'id', 'key']) || `question-${answeredKeys.length + 1}`;
-        setAnsweredKeys((current) => (current.includes(questionKey) ? current : [...current, questionKey]));
-      }
-      const versionLabel = saved.version ? ` version ${saved.version}` : '';
-      const verification = saved.verification_status || 'unverified';
-      report('success', `History response saved${versionLabel} (id ${saved.id}). Server source: ${saved.source || 'patient_reported'}; verification: ${verification}.`);
-      return saved;
-    });
-
-    if (result) {
-      setAnswerText(previousAnswer);
-      setResponseJson(pretty(payload));
-    } else {
-      setAnswerText(previousAnswer);
-    }
-  };
-
+  // --- DOCUMENT FUNCTIONS ---
   const refreshDocumentsSilent = async (id: string) => {
     try {
       const { data } = await request<Dict>(`/api/v1/consultations/${encodeURIComponent(id)}/documents`, {}, token);
       setDocuments(asDocumentList(data) as DocumentRecord[]);
-    } catch {
-      /* Keep the prior list and surface the primary operation result. */
-    }
+    } catch { /* */ }
   };
 
   const refreshTimelineSilent = async (id: string) => {
@@ -403,9 +298,7 @@ export default function App() {
       const { data } = await request<unknown>(`/api/v1/consultations/${encodeURIComponent(id)}/timeline`, {}, token);
       const events = parseTimelineEvents(data);
       setWorkspace((current) => current && current.consultationId === id ? { ...current, timeline: events, timelineState: 'loaded' } : current);
-    } catch {
-      /* Keep the prior timeline if the refresh fails */
-    }
+    } catch { /* */ }
   };
 
   const uploadDocument = async (event: FormEvent) => {
@@ -454,7 +347,7 @@ export default function App() {
 
   const getDocument = async (id: string) => {
     const result = await run(`get-document-${id}`, async () => (await request<DocumentRecord>(`/api/v1/documents/${encodeURIComponent(id)}`, {}, token)).data);
-    if (result) { setDocumentDetail(result); report('success', 'Document detail loaded. Original binary is not returned by the API.'); }
+    if (result) { setDocumentDetail(result); report('success', 'Document detail loaded.'); }
   };
 
   const reprocessDocument = async (id: string) => {
@@ -473,6 +366,18 @@ export default function App() {
     }
   };
 
+  const onFileChosen = (file: File | null) => {
+    if (!file) { setSelectedFile(null); return; }
+    const error = validateDocumentFile(file, activeConsultationId || 'pending');
+    if (error && error !== 'Create or load a consultation first.') {
+      setSelectedFile(null);
+      report('error', error);
+      return;
+    }
+    setSelectedFile(file);
+  };
+
+  // --- DASHBOARD FUNCTIONS ---
   const applySummaryToWorkspace = (consultationId: string, next: DraftSummary | null, state: DashboardWorkspace['summaryState'], error?: string) => {
     setWorkspace((current) => {
       if (!current || current.consultationId !== consultationId) return current;
@@ -575,7 +480,7 @@ export default function App() {
     setPatientIdInput(result.consultation.patient_id);
     setDocuments(result.documents as DocumentRecord[]);
     if (result.patient) setPatient(result.patient);
-    report('success', 'Doctor workspace loaded. Review and verification actions are available for summaries, red flags, and documents.');
+    report('success', 'Doctor workspace loaded.');
   };
 
   const generateSummary = async () => {
@@ -595,16 +500,14 @@ export default function App() {
         const refreshed = await request<unknown>(`/api/v1/consultations/${encodeURIComponent(id)}/summary`, {}, token);
         const latest = parseDraftSummary(refreshed.data);
         if (latest && belongsToConsultation(latest.consultation_id, id)) saved = latest;
-      } catch {
-        /* Keep the POST response when the follow-up GET is unavailable. */
-      }
+      } catch { /* */ }
       return saved;
     });
 
     if (result) {
       applySummaryToWorkspace(id, result, 'loaded');
       await refreshTimelineSilent(id);
-      report('success', `Draft summary ${result.summary_id} saved with status ${result.review_status.replace(/_/g, ' ')}. Treat it as a draft, not a clinical decision.`);
+      report('success', `Draft summary saved.`);
     }
   };
 
@@ -665,7 +568,7 @@ export default function App() {
         delete next[summaryId];
         return next;
       });
-      report('success', `Summary reviewed: ${newStatus.replace(/_/g, ' ')}. Server confirmed status.`);
+      report('success', `Summary reviewed: ${newStatus.replace(/_/g, ' ')}.`);
     });
   };
 
@@ -713,9 +616,7 @@ export default function App() {
           applySummaryToWorkspace(id, parsed, 'loaded');
         }
         await refreshTimelineSilent(id);
-      } catch {
-        /* Do not mask a successful review if the follow-up GET fails. */
-      }
+      } catch { /* */ }
       report('success', `Red flag reviewed: ${newStatus.replace(/_/g, ' ')}.`);
     });
   };
@@ -747,17 +648,6 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, token, consultation?.id]);
 
-  const onFileChosen = (file: File | null) => {
-    if (!file) { setSelectedFile(null); return; }
-    const error = validateDocumentFile(file, activeConsultationId || 'pending');
-    if (error && error !== 'Create or load a consultation first.') {
-      setSelectedFile(null);
-      report('error', error);
-      return;
-    }
-    setSelectedFile(file);
-  };
-
   const logoutButton = user && <button className="ghost-button small" onClick={logout}><LogOut size={15} /> Sign out</button>;
   const tabItems: { id: Tab; label: string; icon: typeof UserRound }[] = [
     { id: 'patient', label: 'Patient intake', icon: UserRound },
@@ -785,7 +675,7 @@ export default function App() {
 
         {!token ? (
           <section className="login-layout">
-            <div className="welcome-panel"><div className="welcome-icon"><Stethoscope size={28} /></div><span className="kicker">PRE-CONSULTATION CARE</span><h2>One connected view of the patient's story.</h2><p>Collect reported history, process uploaded documents and prepare a structured draft for professional review.</p><div className="welcome-checks"><span><BadgeCheck size={16} /> Source-aware records</span><span><BadgeCheck size={16} /> Protected API access</span><span><BadgeCheck size={16} /> Human review first</span></div></div>
+            <div className="welcome-panel"><div className="welcome-icon"><Stethoscope size={28} /></div><span className="kicker">PRE-CONSULTATION CARE</span><h2>One connected view of the patient's story.</h2><p>Collect reported history, process uploaded documents and prepare a structured draft for professional review.</p><div className="welcome-checks"><span><ShieldCheck size={16} /> Source-aware records</span><span><ShieldCheck size={16} /> Protected API access</span><span><ShieldCheck size={16} /> Human review first</span></div></div>
             <form className="card login-card" onSubmit={login}><div className="card-heading"><div className="icon-chip"><LogIn size={19} /></div><div><h2>Sign in</h2><p>Use the account created through the backend API.</p></div></div><div className="field"><Label>Email address</Label><input type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="clinician@example.com" /></div><div className="field"><Label>Password</Label><input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter password" /></div><button className="primary-button full" disabled={loginBusy}>{loginBusy ? <LoaderCircle className="spin" size={17} /> : <LogIn size={17} />} Sign in securely</button><p className="microcopy">The access token is held in memory and is cleared when you sign out or refresh the page.</p></form>
           </section>
         ) : (
@@ -793,89 +683,121 @@ export default function App() {
             <section className="context-strip"><div className="context-icon"><Users size={18} /></div><div className="context-copy"><strong>{patient?.full_name || 'No patient loaded'}</strong><span>{activePatientId || 'Create or load a patient to begin'}{activeConsultationId ? ` · Consultation ${activeConsultationId}` : ''}</span></div><div className="context-right"><StatusPill tone={consultation?.status === 'completed' ? 'good' : activeConsultationId ? 'warn' : 'neutral'}>{consultation?.status || 'No active consultation'}</StatusPill><span className="role-text">{String(user?.role || 'authenticated user')}</span></div></section>
 
             {tab === 'patient' && <div className="content-grid patient-grid">
-              <section className="card"><div className="card-heading"><div className="icon-chip"><UserRound size={18} /></div><div><h2>Patient details</h2><p>Create a synthetic patient or load an existing record.</p></div><span className="step-no">01</span></div>
+              
+              {/* PATIENT DETAILS CARD */}
+              <section className="card">
+                <div className="card-heading">
+                  <div className="icon-chip"><UserRound size={18} /></div>
+                  <div><h2>Patient details</h2><p>Create a synthetic patient or load an existing record.</p></div>
+                  <span className="step-no">01</span>
+                </div>
                 <form onSubmit={createPatient} className="form-stack">
                   <div className="field"><Label>Patient full name</Label><input value={patientName} onChange={(e) => setPatientName(e.target.value)} placeholder="Synthetic Test Patient" required /></div>
                   <div className="field"><Label>Date of birth <span className="optional">(optional)</span></Label><input type="date" value={dob} onChange={(e) => setDob(e.target.value)} /></div>
-                  
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', margin: '4px 0' }}>
-                    <input 
-                      type="checkbox" 
-                      id="consent-cb" 
-                      checked={hasConsent} 
-                      onChange={(e) => setHasConsent(e.target.checked)} 
-                      style={{ marginTop: '3px' }} 
-                    />
+                    <input type="checkbox" id="consent-cb" checked={hasConsent} onChange={(e) => setHasConsent(e.target.checked)} style={{ marginTop: '3px' }} />
                     <label htmlFor="consent-cb" style={{ fontSize: '11px', lineHeight: '1.4', color: '#38564e', cursor: 'pointer' }}>
                       I confirm I have obtained consent to process this patient's medical data.
                     </label>
                   </div>
-
                   <button className="primary-button" disabled={busy !== null || !hasConsent}>
                     {busy === 'create-patient' ? <LoaderCircle className="spin" size={16} /> : <Users size={16} />} Create patient
                   </button>
                 </form>
-                <div className="divider-label"><span>OR LOAD BY PATIENT ID</span></div><form className="inline-form" onSubmit={loadPatient}><input value={patientIdInput} onChange={(e) => setPatientIdInput(e.target.value)} placeholder="Patient UUID" aria-label="Patient ID" /><button className="secondary-button" disabled={busy !== null}>Load</button></form>
+                <div className="divider-label"><span>OR LOAD BY PATIENT ID</span></div>
+                <form className="inline-form" onSubmit={loadPatient}>
+                  <input value={patientIdInput} onChange={(e) => setPatientIdInput(e.target.value)} placeholder="Patient UUID" aria-label="Patient ID" />
+                  <button className="secondary-button" disabled={busy !== null}>Load</button>
+                </form>
                 {patient && <div className="record-summary"><div><small>Patient ID</small><code>{patient.id}</code></div><StatusPill tone="good">Saved</StatusPill></div>}
               </section>
 
-              <section className="card"><div className="card-heading"><div className="icon-chip"><ClipboardList size={18} /></div><div><h2>Start consultation</h2><p>Connect the clinical workflow to a patient record.</p></div><span className="step-no">02</span></div>
-                <form onSubmit={createConsultation} className="form-stack"><div className="field"><Label>Patient ID</Label><input value={patient?.id || patientIdInput} onChange={(e) => { setPatientIdInput(e.target.value); if (patient && patient.id !== e.target.value) setPatient(null); }} placeholder="Create or enter patient UUID" required /></div><div className="field"><Label>Language</Label><select value={language} onChange={(e) => setLanguage(e.target.value)}><option value="en">English</option><option value="ta">Tamil</option><option value="hi">Hindi</option></select></div><button className="primary-button" disabled={busy !== null || !activePatientId}>{busy === 'create-consultation' ? <LoaderCircle className="spin" size={16} /> : <ArrowRight size={16} />} Start consultation</button></form>
-                <div className="divider-label"><span>OR LOAD EXISTING CONSULTATION</span></div><form className="inline-form" onSubmit={loadConsultation}><input value={consultationIdInput} onChange={(e) => { setConsultationIdInput(e.target.value); setWorkspace(null); setConsultation(null);setPatient(null); }} placeholder="Consultation UUID" aria-label="Consultation ID" /><button className="secondary-button" disabled={busy !== null}>Load</button></form>
+              {/* START CONSULTATION CARD */}
+              <section className="card">
+                <div className="card-heading">
+                  <div className="icon-chip"><ClipboardList size={18} /></div>
+                  <div><h2>Start consultation</h2><p>Connect the clinical workflow to a patient record.</p></div>
+                  <span className="step-no">02</span>
+                </div>
+                <form onSubmit={createConsultation} className="form-stack">
+                  <div className="field"><Label>Patient ID</Label><input value={patient?.id || patientIdInput} onChange={(e) => { setPatientIdInput(e.target.value); if (patient && patient.id !== e.target.value) setPatient(null); }} placeholder="Create or enter patient UUID" required /></div>
+                  <div className="field"><Label>Language</Label><select value={language} onChange={(e) => setLanguage(e.target.value)}><option value="en">English</option><option value="ta">Tamil</option><option value="hi">Hindi</option></select></div>
+                  <button className="primary-button" disabled={busy !== null || !activePatientId}>{busy === 'create-consultation' ? <LoaderCircle className="spin" size={16} /> : <ArrowRight size={16} />} Start consultation</button>
+                </form>
+                <div className="divider-label"><span>OR LOAD EXISTING CONSULTATION</span></div>
+                <form className="inline-form" onSubmit={loadConsultation}>
+                  <input value={consultationIdInput} onChange={(e) => { setConsultationIdInput(e.target.value); setWorkspace(null); setConsultation(null); setPatient(null); }} placeholder="Consultation UUID" aria-label="Consultation ID" />
+                  <button className="secondary-button" disabled={busy !== null}>Load</button>
+                </form>
                 {consultation && <div className="record-summary"><div><small>Consultation ID</small><code>{consultation.id}</code></div><StatusPill tone="good">Connected</StatusPill></div>}
               </section>
 
-              <section className="card span-two"><div className="card-heading"><div className="icon-chip"><Activity size={18} /></div><div><h2>Clinical history</h2><p>Request the next question, capture the response, then save through the existing API.</p></div><span className="step-no">03</span></div>
-                <div className="question-layout">
-                  <div className="form-stack">
-                    <div className="field"><Label>Chief complaint</Label><textarea rows={3} value={chiefComplaint} onChange={(e) => setChiefComplaint(e.target.value)} placeholder="Enter the patient's reported main concern. Do not add inferred symptoms." /></div>
-                    <div className="compact-grid">
-                      <div className="field"><Label>Duration value <span className="optional">(optional)</span></Label><input type="number" min={1} step={1} value={durationValue} onChange={(e) => setDurationValue(e.target.value)} placeholder="e.g. 4" /></div>
-                      <div className="field"><Label>Duration unit</Label><select value={durationUnit} onChange={(e) => setDurationUnit(e.target.value as DurationUnit)}><option value="hours">hours</option><option value="days">days</option><option value="weeks">weeks</option><option value="months">months</option></select></div>
-                    </div>
-                    <div className="compact-grid">
-                      <div className="field"><Label>Severity <span className="optional">(optional)</span></Label><input value={severity} onChange={(e) => setSeverity(e.target.value)} placeholder="mild, moderate, severe" /></div>
-                      <div className="field"><Label>Progression <span className="optional">(optional)</span></Label><input value={progression} onChange={(e) => setProgression(e.target.value)} placeholder="worsening, improving" /></div>
-                    </div>
-                    <div className="field"><Label>Location <span className="optional">(optional)</span></Label><input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Patient-reported location" /></div>
-                    <button className="primary-button" onClick={getNextQuestion} disabled={busy !== null || !activeConsultationId}>{busy === 'next-question' ? <LoaderCircle className="spin" size={16} /> : <Workflow size={16} />} Get next question</button>
-                    {questionResult !== null && (
-                      <div className="question-card">
-                        <span className="kicker">NEXT QUESTION RESPONSE</span>
-                        <p>{getText(questionResult, ['question_text', 'question', 'text', 'prompt']) || 'Inspect the structured response below.'}</p>
-                        {questionComplete && <StatusPill tone="good">Pathway complete</StatusPill>}
-                        {questionOptions.length > 0 && (
-                          <div className="choice-row">
-                            {questionOptions.map((option) => (
-                              <button type="button" key={option} className={`choice-chip ${answerText === option ? 'selected' : ''}`} onClick={() => setAnswerText(option)} disabled={busy !== null}>{option}</button>
-                            ))}
-                          </div>
-                        )}
-                        <JsonPanel value={questionResult} />
-                      </div>
-                    )}
+              {/* AI CHAT UI */}
+              <section className="card span-two">
+                <div className="card-heading">
+                  <div className="icon-chip"><Stethoscope size={18} /></div>
+                  <div>
+                    <h2>AI Clinical History Assistant</h2>
+                    <p>Speak or type your symptoms. The AI will ask follow-up questions to build your medical history.</p>
                   </div>
-                  <div className="form-stack">
-                    <div className="field"><Label>Patient answer</Label><textarea rows={3} value={answerText} onChange={(e) => setAnswerText(e.target.value)} placeholder="Capture what the patient actually said." /></div>
-                    <div className="field"><Label>Associated symptoms <span className="optional">(comma-separated, optional)</span></Label><input value={associatedSymptoms} onChange={(e) => setAssociatedSymptoms(e.target.value)} placeholder="e.g. body pain" /></div>
-                    <div className="field"><Label>Current medications <span className="optional">(optional)</span></Label><input value={currentMedications} onChange={(e) => setCurrentMedications(e.target.value)} placeholder="Patient-reported medications" /></div>
-                    <div className="field"><Label>Past medical history <span className="optional">(optional)</span></Label><input value={pastMedicalHistory} onChange={(e) => setPastMedicalHistory(e.target.value)} /></div>
-                    <div className="field"><Label>Allergies <span className="optional">(optional)</span></Label><input value={allergies} onChange={(e) => setAllergies(e.target.value)} /></div>
-                    <button className="secondary-button" onClick={prepareResponseJson} disabled={!activeConsultationId || busy !== null}>Prepare response payload</button>
-                    <div className="field"><Label>Response JSON <span className="optional">(review API fields before submitting)</span></Label><textarea className="json-editor" rows={10} value={responseJson} onChange={(e) => setResponseJson(e.target.value)} spellCheck={false} /></div>
-                    <button className="primary-button" onClick={saveResponse} disabled={busy !== null || !activeConsultationId}>{busy === 'save-response' ? <LoaderCircle className="spin" size={16} /> : <BadgeCheck size={16} />} Save response</button>
-                    {savedSubmission && (
-                      <div className="save-confirm">
-                        <div>
-                          <small>Server-confirmed submission{savedSubmission.version ? ` · version ${savedSubmission.version}` : ''}</small>
-                          <code>{savedSubmission.id}</code>
-                          <span>{getText(savedSubmission.payload, ['answer_text', 'answer']) || 'No follow-up answer was included in this snapshot.'}</span>
-                        </div>
-                        <StatusPill tone="warn">{savedSubmission.verification_status || 'unverified'}</StatusPill>
-                      </div>
-                    )}
-                  </div>
+                  <span className="step-no">03</span>
                 </div>
+
+                {!activeConsultationId ? (
+                  <div className="empty-state compact">Create or load a consultation to start chatting.</div>
+                ) : (
+                  <div className="chat-container">
+                    <div className="chat-messages">
+                      {chatMessages.map((msg, idx) => (
+                        <div key={idx} className={`chat-bubble ${msg.role}`}>
+                          {msg.text}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="chat-input-area">
+                      {chatComplete ? (
+                        <div style={{ display: 'flex', width: '100%', gap: '10px', justifyContent: 'center', padding: '10px' }}>
+                          <button 
+                            type="button" 
+                            className="primary-button" 
+                            style={{ width: '100%', maxWidth: '300px' }}
+                            onClick={() => setTab('dashboard')}
+                          >
+                            <LayoutDashboard size={18} /> Finish Chat & Go to Dashboard
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <input
+                            type="text"
+                            value={chatInput}
+                            onChange={(e) => setChatInput(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && sendChatMessage()}
+                            placeholder="Type your response..."
+                            disabled={busy === 'chat-send'}
+                          />
+                          <button 
+                            type="button"
+                            className={`mic-button ${isListening ? 'recording' : ''}`}
+                            onClick={startListening}
+                            disabled={busy === 'chat-send'}
+                            title="Speak into microphone"
+                          >
+                            <Mic size={20} />
+                          </button>
+                          <button 
+                            type="button"
+                            className="primary-button" 
+                            onClick={sendChatMessage}
+                            disabled={!chatInput.trim() || busy === 'chat-send'}
+                          >
+                            {busy === 'chat-send' ? <LoaderCircle className="spin" size={18} /> : <Send size={18} />}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
               </section>
             </div>}
 

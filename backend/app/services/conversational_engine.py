@@ -19,9 +19,11 @@ OLLAMA_ENDPOINT = os.getenv(
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", settings.ollama_model)
 SYSTEM_INSTRUCTION = """You are Nurse Amma, an empathetic clinical history-taking AI assistant for pre-consultation.
 Analyze the conversation history. Ask ONE short, simple follow-up question at a time.
-If the user reports fever, inquire specifically about its mechanism (onset, pattern, chills/sweats).
-Extract structured data matching the JSON schema. Set `is_complete: true` ONLY when sufficient
-clinical details are gathered for a doctor review.
+
+CRITICAL RULES:
+1. Do NOT repeat a question that the user has already answered. If they answer the fever mechanism (e.g., "spikes at night"), accept it and move to the NEXT logical question (like associated symptoms).
+2. Extract structured data matching the JSON schema. 
+3. Set `is_complete: true` ONLY when you have gathered: chief complaint, duration, severity, and mechanism/symptoms.
 
 Return only a JSON object with this shape:
 {
@@ -56,8 +58,8 @@ _KNOWN_SYMPTOMS = (
     "weakness",
 )
 _NO_OTHER_SYMPTOMS = re.compile(
-    r"\b(?:no|none|nothing)\s+(?:other\s+)?(?:associated\s+)?symptoms?\b"
-    r"|\bno other complaints\b",
+    r"^(?:no|none|nothing)$"
+    r"|\b(?:no|none|nothing)\s+(?:other\s+)?(?:associated\s+)?(?:symptoms?|complaints?)\b",
     re.IGNORECASE,
 )
 _NUMBER_WORDS = {
@@ -81,6 +83,23 @@ class ConversationalEngine:
         chat_history: list[dict[str, str]],
     ) -> dict[str, Any]:
         """Extract the evolving history and next question, using offline rules if needed."""
+        
+        # --- LOOP BREAKER ---
+        if chat_history:
+            latest_msg = chat_history[-1]["content"].strip().lower()
+            # If the user just says "none" or "no", bypass the LLM to prevent loops
+            if latest_msg in ("none", "no", "nothing", "n/a", "none.", "no."):
+                return cls._offline_response(chat_history)
+
+            # If the AI asked the exact same question twice, bypass the LLM
+            if len(chat_history) >= 4:
+                last_ai_msg = chat_history[-2]["content"]
+                prev_ai_msg = chat_history[-4]["content"]
+                if last_ai_msg == prev_ai_msg:
+                    logger.warning("LLM loop detected. Falling back to deterministic engine.")
+                    return cls._offline_response(chat_history)
+        # --------------------
+
         try:
             response_data = cls._request_ollama_json(chat_history)
             response_extracted = response_data.get("extracted_data")
@@ -134,7 +153,7 @@ class ConversationalEngine:
                 "stream": False,
                 "options": {"temperature": 0.2},
             },
-            timeout=30.0,
+            timeout=60.0,
         )
         response.raise_for_status()
         response_body = response.json()
@@ -187,8 +206,9 @@ class ConversationalEngine:
         if "fever" in lower_transcript:
             for pattern in (
                 r"\b(?:continuous|constant)\b",
-                r"\b(?:intermittent|comes and goes)\b",
-                r"\b(?:evening|night)(?:\s+time)?\s+spikes?\b",
+                r"\b(?:intermittent|comes and goes|episodes?)\b",
+                r"\bspike[s]?\s+(?:at|in|during)\s+(?:the\s+)?(?:evening|night)\b",
+                r"\b(?:evening|night)(?:\s+time)?\s+spike[s]?\b",
             ):
                 match = re.search(pattern, lower_transcript)
                 if match:
@@ -200,8 +220,13 @@ class ConversationalEngine:
             for symptom in _KNOWN_SYMPTOMS
             if re.search(rf"\b{re.escape(symptom)}\b", lower_transcript)
         ]
-        if not associated_symptoms and _NO_OTHER_SYMPTOMS.search(lower_transcript):
-            associated_symptoms = ["None reported"]
+        if not associated_symptoms:
+            # Check if the user's LATEST message is "none" or "no"
+            latest_user_msg = patient_messages[-1].strip().lower() if patient_messages else ""
+            if latest_user_msg in ("none", "no", "nothing", "n/a"):
+                associated_symptoms = ["None reported"]
+            elif _NO_OTHER_SYMPTOMS.search(lower_transcript):
+                associated_symptoms = ["None reported"]
         factor_match = re.search(
             r"\b(?:worse|worsens|improves|improved|better|relieved|relief)\b"
             r"[^.!?]{0,100}",
@@ -252,7 +277,7 @@ class ConversationalEngine:
             mechanism = (context.fever_mechanism or "").casefold()
             has_pattern = any(
                 pattern in mechanism
-                for pattern in ("continuous", "constant", "intermittent", "spike", "comes and goes")
+                for pattern in ("continuous", "constant", "intermittent", "spike", "comes and goes","episode")
             )
             return required_details and has_pattern
         return required_details
