@@ -117,3 +117,57 @@
   70% { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); }
   100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
 }
+/* ===== HOSPITAL CHART DASHBOARD ===== */
+.patient-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 24px;
+  background: white;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  box-shadow: 0 3px 10px #173c3010;
+}
+.patient-avatar {
+  width: 56px; height: 56px; border-radius: 14px;
+  background: linear-gradient(135deg, #0b6a5f, #085548);
+  color: white; display: grid; place-items: center;
+  font: 800 20px 'Manrope', sans-serif; flex-shrink: 0;
+}
+.patient-banner-info { flex: 1; min-width: 0; }
+.patient-banner-info h2 { margin: 0; font: 800 20px 'Manrope', sans-serif; color: #0b3b36; }
+.patient-meta { display: flex; flex-wrap: wrap; gap: 0; margin-top: 6px; font-size: 11px; color: var(--muted); }
+.patient-meta span { padding: 0 14px; border-right: 1px solid var(--border); }
+.patient-meta span:first-child { padding-left: 0; }
+.patient-meta span:last-child { border-right: none; }
+.patient-meta strong { color: #38564e; }
+
+.dashboard-grid {
+  display: grid; grid-template-columns: 2fr 1fr;
+  gap: 18px; margin-top: 18px; align-items: start;
+}
+.chart-column, .actions-column { display: flex; flex-direction: column; gap: 14px; }
+.chart-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.chart-card { padding: 18px 20px; }
+.chart-section-title {
+  font: 800 10px 'Manrope', sans-serif; text-transform: uppercase;
+  letter-spacing: 1.2px; color: #68817a; margin: 0 0 12px;
+}
+.chief-complaint { font: 800 28px 'Manrope', sans-serif; color: #0b3b36; padding: 4px 0; letter-spacing: -0.5px; }
+.clinical-note { font-size: 13px; line-height: 1.75; color: #172e2b; margin: 0; }
+.chart-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.chart-list li { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #f5faf7; border-radius: 8px; font-size: 12px; }
+.chart-list li strong { flex: 1; }
+.allergy-list li { background: #fff0ee; border-left: 3px solid #a43d3d; }
+.chart-empty { font-size: 12px; color: var(--muted); font-style: italic; margin: 0; }
+.red-flag-card { border-left: 4px solid #a43d3d; background: #fff8f7; }
+.red-flag-item { padding: 10px; background: white; border-radius: 8px; margin-bottom: 10px; font-size: 12px; }
+.red-flag-item strong { color: #a43d3d; }
+.red-flag-item p { margin: 4px 0; }
+.dashboard-bottom { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 18px; }
+
+@media (max-width: 900px) {
+  .dashboard-grid, .dashboard-bottom, .chart-two-col { grid-template-columns: 1fr; }
+  .patient-meta { flex-direction: column; gap: 2px; }
+  .patient-meta span { border-right: none; padding: 0; }
+}

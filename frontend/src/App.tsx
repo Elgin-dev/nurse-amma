@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import {
-  ArrowRight, ClipboardList, CloudUpload,
+  Activity, ArrowRight, ClipboardList, CloudUpload,
   FileText, HeartPulse, LayoutDashboard, LoaderCircle, LogIn, LogOut, Mic, Send,
   ShieldCheck, Stethoscope, UserRound, Users, Workflow, Search, CheckCircle2
 } from 'lucide-react';
 import { API_BASE, formatError, pretty, request } from './api';
 import {
-  describeUploadResult
+  describeUploadResult, verificationTone
 } from './documentUi';
 import {
   belongsToConsultation,
@@ -19,6 +19,7 @@ import {
   parseDashboardDocuments,
   parseDraftSummary,
   parseTimelineEvents,
+  redFlagReviewOptions,
   stripSummaryPrefix,
   summaryReviewOptions,
   verificationLabel,
@@ -43,6 +44,12 @@ function JsonPanel({ value }: { value: unknown }) { return <pre className="json-
 function StatusPill({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'good' | 'warn' | 'neutral' | 'bad' }) {
   return <span className={`pill pill-${tone}`}>{children}</span>;
 }
+function getText(value: unknown, keys: string[]): string {
+  if (!value || typeof value !== 'object') return '';
+  const obj = value as Dict;
+  for (const key of keys) if (typeof obj[key] === 'string' && obj[key].trim()) return obj[key];
+  return '';
+}
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('patient');
@@ -66,7 +73,8 @@ export default function App() {
   const [patient, setPatient] = useState<Patient | null>(null);
   const [language, setLanguage] = useState('en');
   const [consultation, setConsultation] = useState<Consultation | null>(null);
-
+  const [searchConsultationId, setSearchConsultationId] = useState('');
+  const [searchResultsConsultations, setSearchResultsConsultations] = useState<any[]>([]);
   // --- Search States ---
   const [searchName, setSearchName] = useState('');
   const [searchDob, setSearchDob] = useState('');
@@ -220,8 +228,9 @@ export default function App() {
         setChatMessages((prev) => [...prev, { role: 'ai', text: aiText }]);
         
         if (data.status === 'EMERGENCY_ESCALATION') {
+           setChatComplete(true); // Locks the chat input
            report('error', 'EMERGENCY: ' + aiText);
-        } else if (data.extracted_data?.is_complete) {
+        } else if (data.status === 'COMPLETED' || data.extracted_data?.is_complete) {
            setChatComplete(true);
            report('success', 'AI has collected enough history.');
         }
@@ -393,6 +402,19 @@ export default function App() {
     });
   };
 
+  const reviewRedFlagAction = async (flagId: string, newStatus: string) => {
+    const id = activeConsultationId;
+    await run(`review-flag-${flagId}-${newStatus}`, async () => {
+      await request(`/api/v1/red-flags/${encodeURIComponent(flagId)}/review`, { method: 'POST', body: JSON.stringify({ status: newStatus, notes: null }) }, token);
+      try {
+        const { data } = await request<unknown>(`/api/v1/consultations/${encodeURIComponent(id)}/summary`, {}, token);
+        const parsed = parseDraftSummary(data);
+        if (parsed) applySummaryToWorkspace(id, parsed, 'loaded');
+      } catch { /* */ }
+      report('success', `Red flag marked: ${newStatus}.`);
+    });
+  };
+
   const getDocument = async (id: string) => {
     const result = await run(`get-document-${id}`, async () => (await request<DocumentRecord>(`/api/v1/documents/${encodeURIComponent(id)}`, {}, token)).data);
     if (result) { setDocumentDetail(result); }
@@ -537,52 +559,166 @@ export default function App() {
 
             {tab === 'dashboard' && (
               <div className="dashboard-layout">
+                {/* --- LOAD CONSULTATION TOOLBAR --- */}
+                <section className="card" style={{ padding: '16px', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
+                    <div className="field grow" style={{ margin: 0, flex: 1 }}>
+                      <Label>Find Consultation by Patient Name</Label>
+                      <input 
+                        value={searchConsultationId} 
+                        onChange={(e) => setSearchConsultationId(e.target.value)} 
+                        placeholder="Type patient name (e.g., test3)..." 
+                      />
+                    </div>
+                    <button 
+                      className="primary-button" 
+                      onClick={async () => {
+                        if (!searchConsultationId.trim()) return;
+                        await run('search-consultations', async () => {
+                          const { data } = await request<any[]>(
+                            `/api/v1/consultations/search?patient_name=${encodeURIComponent(searchConsultationId)}`, 
+                            {}, token
+                          );
+                          setSearchResultsConsultations(data);
+                          if (data.length === 0) report('info', 'No consultations found for that name.');
+                        });
+                      }}
+                      disabled={busy !== null}
+                    >
+                      Search
+                    </button>
+                  </div>
+
+                  {searchResultsConsultations.length > 0 && (
+                    <div className="document-list" style={{ marginTop: '16px' }}>
+                      {searchResultsConsultations.map(c => (
+                        <div key={c.id} className="document-row" style={{ cursor: 'pointer' }} onClick={() => {
+                          loadDashboardWorkspace(c.id);
+                          setSearchResultsConsultations([]);
+                          setSearchConsultationId('');
+                        }}>
+                          <div className="document-info">
+                            <strong>{c.patient_name}</strong>
+                            <span>Consultation: {c.id.substring(0, 8)}... | {formatTimestamp(c.created_at)}</span>
+                          </div>
+                          <button className="text-button">Load</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
                 {!activeWorkspace ? (
                   <div className="empty-state">Loading dashboard...</div>
                 ) : (
-                  <div className="dashboard-cards">
-                    
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-                      <section className="card">
-                        <div className="card-heading"><div className="icon-chip"><ClipboardList size={18} /></div><div><h2>Patient Context</h2></div></div>
-                        <div className="detail-line"><span>Name</span><strong>{activeWorkspace.patient?.full_name || '—'}</strong></div>
-                        <div className="detail-line"><span>Patient ID</span><code>{activeWorkspace.patient?.id || '—'}</code></div>
-                      </section>
-
-                      <section className="card">
-                        <div className="card-heading"><div className="icon-chip"><FileText size={18} /></div><div><h2>Documents</h2></div></div>
-                        <button className="secondary-button" style={{ marginBottom: '12px' }} onClick={() => loadDashboardWorkspace(activeConsultationId)}>Refresh Docs</button>
-                        <div className="document-list">
-                          {activeWorkspace.documents.map(doc => (
-                            <div key={doc.id} className="document-row">
-                              <div className="document-info"><strong>{doc.filename}</strong></div>
-                              <button className="text-button" onClick={() => getDocument(doc.id)}>View</button>
-                            </div>
-                          ))}
+                  <>
+                    <section className="patient-banner">
+                      <div className="patient-avatar">
+                        {(activeWorkspace.patient?.full_name || 'P').substring(0, 2).toUpperCase()}
+                      </div>
+                      <div className="patient-banner-info">
+                        <h2>{activeWorkspace.patient?.full_name || 'Unknown Patient'}</h2>
+                        <div className="patient-meta">
+                          <span><strong>MRN:</strong> {(activeWorkspace.patient?.id || '').substring(0, 8)}</span>
+                          <span><strong>DOB:</strong> {activeWorkspace.patient?.date_of_birth || 'Not recorded'}</span>
+                          <span><strong>Consultation:</strong> {activeConsultationId.substring(0, 8)}</span>
+                          <span><strong>Status:</strong> In Consultation</span>
                         </div>
-                      </section>
-                    </div>
+                      </div>
+                      <StatusPill tone={visibleSummary ? verificationLabel(visibleSummary.review_status).tone : 'warn'}>
+                        {visibleSummary ? visibleSummary.review_status.replace(/_/g, ' ') : 'No Summary'}
+                      </StatusPill>
+                    </section>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                    {!visibleSummary ? (
                       <section className="card">
-                        <div className="card-heading"><div className="icon-chip"><FileText size={18} /></div><div><h2>Draft Summary</h2></div></div>
-                        <button className="primary-button" onClick={generateSummary} disabled={busy !== null}>Generate Summary</button>
-                        {visibleSummary && (
-                          <div className="clinical-summary" style={{ marginTop: '16px' }}>
-                            <div className="summary-status-row"><StatusPill tone={verificationLabel(visibleSummary.review_status).tone}>{visibleSummary.review_status}</StatusPill></div>
-                            <div className="summary-section"><h3 className="subheading">Chief Complaint</h3><p>{visibleSummary.chief_complaint}</p></div>
-                            <div className="summary-section"><h3 className="subheading">HPI</h3><p>{visibleSummary.history_of_present_illness}</p></div>
+                        <div className="card-heading"><div className="icon-chip"><FileText size={18} /></div><div><h2>Generate Clinical Summary</h2><p>No draft summary exists yet for this consultation.</p></div></div>
+                        <button className="primary-button" onClick={generateSummary} disabled={busy !== null}>
+                          {busy === 'generate-summary' ? <LoaderCircle className="spin" size={16} /> : <FileText size={16} />} Generate Summary from History
+                        </button>
+                      </section>
+                    ) : (
+                      <div className="dashboard-grid">
+                        <div className="chart-column">
+                          <section className="card chart-card">
+                            <h3 className="chart-section-title">Chief Complaint</h3>
+                            <div className="chief-complaint">{visibleSummary.chief_complaint || 'Not recorded'}</div>
+                          </section>
+
+                          <section className="card chart-card">
+                            <h3 className="chart-section-title">History of Present Illness</h3>
+                            <p className="clinical-note">{visibleSummary.history_of_present_illness || 'Not recorded'}</p>
+                          </section>
+
+                          <div className="chart-two-col">
+                            <section className="card chart-card">
+                              <h3 className="chart-section-title">Past Medical History</h3>
+                              {visibleSummary.past_medical_history.length > 0
+                                ? <ul className="chart-list">{visibleSummary.past_medical_history.map((item, i) => <li key={i}>{item}</li>)}</ul>
+                                : <p className="chart-empty">None recorded</p>}
+                            </section>
+                            <section className="card chart-card">
+                              <h3 className="chart-section-title">Medications</h3>
+                              {visibleSummary.medication_history.length > 0
+                                ? <ul className="chart-list">{visibleSummary.medication_history.map((m, i) => (
+                                    <li key={i}>
+                                      <strong>{m.name}</strong>
+                                      {m.status && <StatusPill tone={m.status === 'verified' ? 'good' : 'warn'}>{m.status}</StatusPill>}
+                                    </li>
+                                  ))}</ul>
+                                : <p className="chart-empty">No current medications</p>}
+                            </section>
                           </div>
-                        )}
-                      </section>
 
-                      <section className="card">
-                        <div className="card-heading"><div className="icon-chip"><ShieldCheck size={18} /></div><div><h2>Clinical Review</h2></div></div>
-                        {visibleSummary && (
-                          <>
+                          <div className="chart-two-col">
+                            <section className="card chart-card">
+                              <h3 className="chart-section-title">Allergies</h3>
+                              {visibleSummary.allergies.length > 0
+                                ? <ul className="chart-list allergy-list">{visibleSummary.allergies.map((a, i) => <li key={i}>{a}</li>)}</ul>
+                                : <p className="chart-empty">No known allergies</p>}
+                            </section>
+                            <section className="card chart-card">
+                              <h3 className="chart-section-title">Investigations</h3>
+                              {visibleSummary.investigation_history.length > 0
+                                ? <ul className="chart-list">{visibleSummary.investigation_history.map((item, i) => {
+                                    const title = getText(item, ['name', 'test_name', 'investigation', 'title']);
+                                    return <li key={i}>{title || 'Investigation on file'}</li>;
+                                  })}</ul>
+                                : <p className="chart-empty">No investigations on file</p>}
+                            </section>
+                          </div>
+                        </div>
+
+                        <div className="actions-column">
+                          {visibleSummary.red_flags.length > 0 && (
+                            <section className="card chart-card red-flag-card">
+                              <h3 className="chart-section-title" style={{ color: '#a43d3d' }}>⚠ Red Flags</h3>
+                              {visibleSummary.red_flags.map((flag) => {
+                                const reviewId = flag.id;
+                                const nextOptions = reviewId ? redFlagReviewOptions(flag.review_status) : [];
+                                return (
+                                  <div key={reviewId || flag.flag_id} className="red-flag-item">
+                                    <strong>{flag.severity.toUpperCase()}</strong>
+                                    <p>{flag.trigger}</p>
+                                    <small>Status: {flag.review_status.replace(/_/g, ' ')}</small>
+                                    {nextOptions.length > 0 && reviewId && (
+                                      <div className="button-row" style={{ marginTop: '6px' }}>
+                                        {nextOptions.map(s => (
+                                          <button key={s} className="secondary-button small" onClick={() => reviewRedFlagAction(reviewId, s)}>{s.replace(/_/g, ' ')}</button>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </section>
+                          )}
+
+                          <section className="card chart-card">
+                            <h3 className="chart-section-title">Clinical Review</h3>
+                            <div className="detail-line"><span>Status</span><StatusPill tone={verificationLabel(visibleSummary.review_status).tone}>{visibleSummary.review_status.replace(/_/g, ' ')}</StatusPill></div>
                             {summaryReviewOptions(visibleSummary.review_status).length > 0 && (
-                              <div className="form-stack">
-                                <div className="field"><Label>Notes</Label><textarea rows={2} value={reviewNotes[visibleSummary.summary_id] || ''} onChange={e => setReviewNotes({...reviewNotes, [visibleSummary.summary_id]: e.target.value})} placeholder="Reason for review..." /></div>
+                              <div className="form-stack" style={{ marginTop: '12px' }}>
+                                <div className="field"><Label>Review Notes</Label><textarea rows={2} value={reviewNotes[visibleSummary.summary_id] || ''} onChange={e => setReviewNotes({ ...reviewNotes, [visibleSummary.summary_id]: e.target.value })} placeholder="Reason for review..." /></div>
                                 <div className="button-row">
                                   {summaryReviewOptions(visibleSummary.review_status).map(status => (
                                     <button key={status} className={status === 'approved' ? 'primary-button' : 'secondary-button'} onClick={() => reviewSummaryAction(visibleSummary.summary_id, status)} disabled={busy !== null}>{status.replace(/_/g, ' ')}</button>
@@ -591,28 +727,45 @@ export default function App() {
                               </div>
                             )}
                             {correctionDraft && correctionDraft.summaryId === visibleSummary.summary_id && (
-                              <div style={{ marginTop: '16px', borderTop: '1px solid #eee', paddingTop: '16px' }}>
-                                <div className="field"><Label>Correct Chief Complaint</Label><textarea rows={2} value={correctionDraft.cc} onChange={e => setCorrectionDraft({...correctionDraft, cc: e.target.value})} /></div>
+                              <div style={{ marginTop: '12px', borderTop: '1px solid #eee', paddingTop: '12px' }}>
+                                <div className="field"><Label>Correct Chief Complaint</Label><textarea rows={2} value={correctionDraft.cc} onChange={e => setCorrectionDraft({ ...correctionDraft, cc: e.target.value })} /></div>
                                 <button className="primary-button" onClick={() => correctSummaryAction(visibleSummary.summary_id)} disabled={busy !== null}>Apply Correction</button>
                               </div>
                             )}
-                          </>
-                        )}
+                          </section>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="dashboard-bottom">
+                      <section className="card">
+                        <div className="card-heading"><div className="icon-chip"><FileText size={18} /></div><div><h2>Source Documents</h2><p>{activeWorkspace.documents.length} file(s)</p></div><button className="text-button" onClick={() => loadDashboardWorkspace(activeConsultationId)}>Refresh</button></div>
+                        {activeWorkspace.documents.length === 0
+                          ? <p className="chart-empty">No documents uploaded</p>
+                          : <div className="document-list">{activeWorkspace.documents.map(doc => (
+                              <div key={doc.id} className="document-row">
+                                <div className="document-icon"><FileText size={18} /></div>
+                                <div className="document-info"><strong>{doc.filename}</strong><span>{doc.extraction_method || 'Extraction'}</span></div>
+                                <StatusPill tone={verificationTone(doc.verification_status)}>{doc.verification_status || 'unverified'}</StatusPill>
+                                <button className="text-button" onClick={() => getDocument(doc.id)}>View</button>
+                              </div>
+                            ))}</div>}
                       </section>
 
                       <section className="card">
-                        <div className="card-heading"><div className="icon-chip"><Workflow size={18} /></div><div><h2>Timeline</h2></div></div>
+                        <div className="card-heading"><div className="icon-chip"><Workflow size={18} /></div><div><h2>Activity Timeline</h2><p>{activeWorkspace.timeline.length} event(s)</p></div></div>
                         <div className="document-list">
                           {activeWorkspace.timeline.map(e => (
-                            <div className="document-row" key={e.event_id}>
+                            <div key={e.event_id} className="document-row">
+                              <div className="document-icon"><Activity size={16} /></div>
                               <div className="document-info"><strong>{e.title}</strong><span>{formatTimestamp(e.occurred_at)}</span></div>
+                              <StatusPill tone={verificationLabel(e.status).tone}>{e.status.replace(/_/g, ' ')}</StatusPill>
                             </div>
                           ))}
                         </div>
                       </section>
                     </div>
-
-                  </div>
+                  </>
                 )}
               </div>
             )}

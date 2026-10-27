@@ -244,7 +244,21 @@ async def dynamic_intake(
         )
 
     latest_message = payload.chat_history[-1].content
-    normalized_message = latest_message.casefold()
+    normalized_message = latest_message.casefold().strip()
+    
+    # 1. Handle user wanting to end the chat
+    if normalized_message in ("end chat", "stop", "quit", "exit", "lets end this chat", "end"):
+        # Return a completed state so the UI shows the finish button
+        return DynamicIntakeResponse(
+            status="COMPLETED",
+            next_question="",
+            extracted_data=ExtractedClinicalContext(
+                chief_complaint="Session ended by user",
+                is_complete=True
+            )
+        )
+
+    # 2. Handle Red Flag Emergencies
     matched_red_flag = next(
         (
             trigger
@@ -254,11 +268,62 @@ async def dynamic_intake(
         None,
     )
     if matched_red_flag:
+        # 1. Save the emergency to the DB so the dashboard can find it
+        emergency_payload = {
+            "consultation_id": str(consultation_id),
+            "chief_complaint": latest_message,
+            "symptom_details": {
+                "severity": "severe",
+                "progression": "unspecified",
+                "location": None,
+                "duration": None,
+            },
+            "associated_symptoms": ["Emergency Red Flag Triggered"],
+            "past_medical_history": [],
+            "current_medications": [],
+            "allergies": [],
+            "question_key": "red_flag",
+            "question_text": "Emergency Triage",
+            "answer_text": f"Patient reported: {matched_red_flag}",
+            "source": "patient_reported",
+        }
+        
+        try:
+            validated_payload = PatientResponseInput.model_validate(emergency_payload)
+            latest_submission = db.scalar(
+                select(ClinicalHistorySubmission)
+                .where(ClinicalHistorySubmission.consultation_id == consultation_id)
+                .order_by(ClinicalHistorySubmission.version.desc())
+                .limit(1)
+            )
+            serialized = validated_payload.model_dump(mode="json")
+            if latest_submission is None or latest_submission.payload != serialized:
+                next_version = (latest_submission.version if latest_submission else 0) + 1
+                submission = ClinicalHistorySubmission(
+                    consultation_id=consultation_id,
+                    version=next_version,
+                    schema_version=1,
+                    payload=serialized,
+                    source="patient_reported",
+                    verification_status="unverified",
+                )
+                db.add(submission)
+                db.commit()
+        except Exception:
+            db.rollback()
+
+        # 2. Return the emergency response to lock the chat
         return DynamicIntakeResponse(
             status="EMERGENCY_ESCALATION",
             next_question=(
                 "Please seek emergency medical care now or contact your local "
                 "emergency number. Do not wait for this chat to continue."
+            ),
+            extracted_data=ExtractedClinicalContext(
+                chief_complaint=latest_message,
+                severity="severe",
+                associated_symptoms=["Emergency Red Flag Triggered"],
+                is_complete=True,
             ),
             red_flag_alert={
                 "flag_id": "RF-DYNAMIC-001",
@@ -290,6 +355,19 @@ async def dynamic_intake(
         extracted_data
     )
     extracted_data.is_complete = complete
+    # Filter out the chief complaint from associated symptoms (prevents "headache: headache" bugs)
+    chief_lower = (extracted_data.chief_complaint or "").strip().lower()
+    cleaned = []
+    for s in (extracted_data.associated_symptoms or []):
+        s_strip = s.strip()
+        if not s_strip:
+            continue
+        if s_strip.lower() == chief_lower:
+            continue
+        if s_strip.lower() in {"none", "n/a", "null"}:
+            continue
+        cleaned.append(s_strip)
+    extracted_data.associated_symptoms = cleaned if cleaned else ["None reported"]
 
     doctor_summary = None
     next_question = engine_result.get("next_question", "")
@@ -321,7 +399,7 @@ async def dynamic_intake(
 
         extra_notes = []
         if extracted_data.fever_mechanism:
-            extra_notes.append(f"Fever mechanism: {extracted_data.fever_mechanism}.")
+            extra_notes.append(f"Symptom characteristics: {extracted_data.fever_mechanism}.")
         if extracted_data.aggravating_relieving_factors:
             extra_notes.append(
                 f"Aggravating/relieving factors: {extracted_data.aggravating_relieving_factors}."
