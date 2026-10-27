@@ -1,4 +1,5 @@
 import json
+from collections.abc import Generator
 from uuid import uuid4
 
 import pytest
@@ -7,8 +8,10 @@ from unittest.mock import MagicMock
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.security import get_current_user
 from app.db.session import get_db
 from app.main import app
+from app.models.user import User
 from app.schemas.clinical_history import ExtractedClinicalContext
 
 
@@ -28,7 +31,7 @@ def _ollama_http_response(next_q: str, extracted: dict) -> FakeHTTPResponse:
 
 
 @pytest.fixture
-def dynamic_client(monkeypatch) -> TestClient:
+def dynamic_client(monkeypatch) -> Generator[TestClient, None, None]:
     # Mock the database to prevent saving to Postgres during unit tests
     mock_db = MagicMock(spec=Session)
     mock_db.scalar.return_value = None  # Simulate no existing history
@@ -39,8 +42,6 @@ def dynamic_client(monkeypatch) -> TestClient:
     app.dependency_overrides[get_db] = override_get_db
     
     # We don't need real auth for these unit tests
-    from app.core.security import get_current_user
-    from app.models.user import User
     app.dependency_overrides[get_current_user] = lambda: User(id=uuid4(), role="admin")
     
     # Mock consultation access
