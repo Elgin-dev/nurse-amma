@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
-import tempfile
 from typing import Any
 from uuid import UUID
 
@@ -16,9 +15,7 @@ from app.core.security import get_current_user
 from app.db.session import get_db
 from app.models.medical_document import MedicalDocument
 from app.models.user import User
-from app.services.document_service import process_medical_document
-from app.services.entity_extraction import extract_laboratory_entities
-from app.services.ocr_service import extract_image_text
+from app.services.intelligent_ocr_service import IntelligentOCRService
 
 
 router = APIRouter(tags=["Medical Documents"])
@@ -36,7 +33,6 @@ GENERIC_CONTENT_TYPES = {"", "application/octet-stream"}
 def _validate_file_signature(content: bytes, suffix: str) -> bool:
     """Check the signature and openability before persisting uploaded bytes."""
     if suffix == ".pdf":
-        # The PDF specification permits the header within the first 1024 bytes.
         if b"%PDF-" not in content[:1024]:
             return False
         try:
@@ -68,8 +64,6 @@ def _validate_file_signature(content: bytes, suffix: str) -> bool:
 def _validate_declared_content_type(suffix: str, content_type: str | None) -> None:
     declared = (content_type or "").split(";", 1)[0].strip().lower()
     if declared in GENERIC_CONTENT_TYPES:
-        # Some existing clients send no MIME type or application/octet-stream;
-        # the signature check remains mandatory for these requests.
         return
     if declared != EXPECTED_CONTENT_TYPES[suffix]:
         raise HTTPException(
@@ -128,27 +122,27 @@ async def _read_and_validate_upload(file: UploadFile) -> tuple[str, str, bytes]:
 
 
 def _extract_bytes(content: bytes, suffix: str, original_filename: str) -> dict[str, Any]:
-    """Reuse the existing PDF/OCR services while isolating temporary files."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        file_path = Path(temp_dir) / f"upload{suffix}"
-        file_path.write_bytes(content)
-
-        if suffix == ".pdf":
-            result = process_medical_document(str(file_path))
-            extraction_method = "PDF text extraction"
-        else:
-            result = extract_image_text(str(file_path))
-            result["entities"] = extract_laboratory_entities(
-                text=result.get("text", ""), page_number=1
-            )
-            extraction_method = "Tesseract OCR"
-
+    """Use the AI Intelligent OCR service for both PDFs and Images."""
+    if suffix == ".pdf":
+        result = IntelligentOCRService.process_pdf(content, original_filename)
+    else:
+        result = IntelligentOCRService.process_image(content, original_filename)
+        
+    structured_data = result.get("structured_data", {})
+    
+    # Ensure the AI results are marked unverified
+    if structured_data:
+        structured_data["verification_status"] = "unverified"
+        
+    # The frontend UI expects entities to be a list containing the structured dict
+    entities = [structured_data] if structured_data else []
+    
     return {
         "filename": original_filename,
-        "text": result.get("text", ""),
-        "entities": _mark_entities_unverified(result.get("entities", [])),
+        "text": result.get("raw_ocr_text", ""),
+        "entities": _mark_entities_unverified(entities),
         "page_count": result.get("page_count", 1),
-        "extraction_method": extraction_method,
+        "extraction_method": result.get("extraction_method", "AI Intelligent OCR"),
         "verification_status": "unverified",
     }
 
@@ -197,7 +191,6 @@ def _persist_extraction(
     document.entities = _mark_entities_unverified(result.get("entities", []))
     document.page_count = result.get("page_count", 1)
     document.extraction_method = result.get("extraction_method", "unknown")
-    # Verification is assigned by an authorized clinical workflow, never by OCR.
     document.verification_status = "unverified"
     document.processing_status = "completed"
     document.error_message = None
@@ -238,7 +231,6 @@ async def _process_upload(
     file: UploadFile, consultation_id: UUID, db: Session, user: User
 ) -> dict[str, Any]:
     try:
-        # Check authorization before reading or storing any patient document.
         require_consultation_access(db, consultation_id, user)
         filename, suffix, content = await _read_and_validate_upload(file)
 
@@ -286,19 +278,12 @@ async def upload_medical_document(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Compatibility upload contract.
-
-    Existing callers may continue to upload only a file; that legacy mode returns
-    an extraction response without persistence because it has no consultation to
-    attach the document to. Supplying consultation_id opts into persistent storage.
-    """
     if consultation_id is not None:
         return await _process_upload(file, consultation_id, db, current_user)
 
     try:
         filename, suffix, content = await _read_and_validate_upload(file)
         try:
-            # Legacy mode preserves the prior extraction-only response contract.
             return _extract_bytes(content, suffix, filename)
         except (ValueError, FileNotFoundError) as exc:
             raise HTTPException(
@@ -321,7 +306,6 @@ async def upload_consultation_document(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Upload and persist a document for an authorized consultation."""
     return await _process_upload(file, consultation_id, db, current_user)
 
 
@@ -331,7 +315,6 @@ def list_consultation_documents(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """List stored documents for a consultation the current user may access."""
     require_consultation_access(db, consultation_id, current_user)
     documents = (
         db.query(MedicalDocument)
@@ -352,7 +335,6 @@ def get_medical_document(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Retrieve stored metadata and extraction output, not the binary file."""
     document = db.query(MedicalDocument).filter(MedicalDocument.id == document_id).first()
     if document is None:
         raise HTTPException(status_code=404, detail="Medical document not found.")
@@ -366,7 +348,6 @@ def process_stored_medical_document(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Re-run OCR/text extraction against the stored original file."""
     document = db.query(MedicalDocument).filter(MedicalDocument.id == document_id).first()
     if document is None:
         raise HTTPException(status_code=404, detail="Medical document not found.")

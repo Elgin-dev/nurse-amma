@@ -144,6 +144,7 @@ class ChatMessagePayload(BaseModel):
 
 class DynamicIntakeRequest(BaseModel):
     consultation_id: str
+    language: str = "en"
     chat_history: List[ChatMessagePayload] = Field(..., min_length=1, max_length=100)
 
     @model_validator(mode="after")

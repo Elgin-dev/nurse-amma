@@ -1,6 +1,8 @@
+from datetime import date
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -55,6 +57,29 @@ def create_patient(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to save patient record.",
         ) from exc
+
+
+# --- SEARCH ROUTE MUST COME BEFORE /{patient_id} ---
+@router.get("/search")
+def search_patients(
+    name: str,
+    dob: date | None = None, # <-- CHANGED FROM str TO date
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Search for patients by name (partial match) and optionally DOB."""
+    query = select(Patient).where(func.lower(Patient.full_name).contains(name.lower()))
+    
+    if dob:
+        query = query.where(Patient.date_of_birth == dob)
+        
+    # Security: Clinicians only see their own patients, Admins see all
+    if current_user.role != "admin":
+        query = query.where(Patient.created_by_user_id == current_user.id)
+        
+    patients = db.scalars(query).all()
+    return patients
+# ----------------------------------------------------
 
 
 @router.get("/{patient_id}", response_model=PatientResponse)

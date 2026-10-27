@@ -99,10 +99,14 @@ def build_summary_response(
         ),
         corrected_at=summary.corrected_at,
     )
+
+
 def _clean_history_list(items: list[str]) -> list[str]:
     """Remove placeholder text that users sometimes type into optional fields."""
     invalid_values = {"not provided", "none", "unknown", "n/a", "na", "nil"}
     return [item.strip() for item in items if item.strip().lower() not in invalid_values]
+
+
 def _parse_duration(duration_str: Optional[str]) -> Optional[dict]:
     """Convert '3 days' into {'value': 3, 'unit': 'days'} for SymptomDetails."""
     if not duration_str:
@@ -118,6 +122,7 @@ def _parse_duration(duration_str: Optional[str]) -> Optional[dict]:
     if unit not in ("hours", "days", "weeks", "months"):
         unit = "days"
     return {"value": value, "unit": unit}
+
 
 _DYNAMIC_INTAKE_RED_FLAGS = (
     "chest pain",
@@ -270,10 +275,14 @@ async def dynamic_intake(
         message.model_dump()
         for message in payload.chat_history
     ]
+    
+    # PASS THE LANGUAGE TO THE ENGINE
     engine_result = await run_in_threadpool(
         ConversationalEngine.process_turn_local,
         chat_history,
+        payload.language,  # <-- THIS IS THE NEW LINE
     )
+    
     extracted_data = ExtractedClinicalContext.model_validate(
         engine_result["extracted_data"]
     )

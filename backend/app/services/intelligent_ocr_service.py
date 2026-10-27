@@ -4,6 +4,7 @@ import os
 from typing import Any
 
 import httpx
+import pymupdf
 
 from app.core.config import settings
 from app.schemas.intelligent_ocr import (
@@ -71,6 +72,51 @@ class IntelligentOCRService:
             "structured_data": structured,
             "verification_status": "unverified",
             "structuring_source": source,
+            "page_count": 1,
+        }
+
+    @classmethod
+    def process_pdf(
+        cls,
+        pdf_bytes: bytes,
+        filename: str,
+    ) -> dict[str, Any]:
+        """Extract text from a digital PDF and structure it using local Ollama."""
+        try:
+            with pymupdf.open(stream=pdf_bytes, filetype="pdf") as doc:
+                raw_text = "\n".join(page.get_text("text") for page in doc)
+                page_count = doc.page_count
+        except Exception as e:
+            logger.error(f"Failed to extract text from PDF: {e}")
+            raw_text = ""
+            page_count = 1
+
+        try:
+            structured = cls._structure_with_ollama(raw_text)
+            source = "ollama"
+        except (
+            httpx.HTTPError,
+            ValueError,
+            KeyError,
+            TypeError,
+            AttributeError,
+            json.JSONDecodeError,
+        ):
+            logger.warning(
+                "Ollama PDF structuring failed; using deterministic extraction.",
+                exc_info=True,
+            )
+            structured = cls._offline_structure(raw_text)
+            source = "offline"
+
+        return {
+            "filename": filename,
+            "extraction_method": "PDF text extraction",
+            "raw_ocr_text": raw_text,
+            "structured_data": structured,
+            "verification_status": "unverified",
+            "structuring_source": source,
+            "page_count": page_count,
         }
 
     @staticmethod
