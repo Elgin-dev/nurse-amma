@@ -411,7 +411,7 @@ async def dynamic_intake(
             "symptom_details": {
                 "duration": duration_parsed,
                 "severity": extracted_data.severity,
-                "progression": extracted_data.fever_mechanism,
+                "progression": None, # Progression is not extracted by the AI
                 "location": None,
             },
             "associated_symptoms": list(extracted_data.associated_symptoms or []),
@@ -420,7 +420,7 @@ async def dynamic_intake(
             "allergies": [],
             "question_key": None,
             "question_text": "AI conversational intake",
-            "answer_text": " ".join(extra_notes) if extra_notes else None,
+            "answer_text": f"Character: {extracted_data.fever_mechanism}." if extracted_data.fever_mechanism else None,
             "source": "patient_reported",
         }
 

@@ -75,6 +75,8 @@ export default function App() {
   const [consultation, setConsultation] = useState<Consultation | null>(null);
   const [searchConsultationId, setSearchConsultationId] = useState('');
   const [searchResultsConsultations, setSearchResultsConsultations] = useState<any[]>([]);
+  const [recentConsultations, setRecentConsultations] = useState<any[]>([]);
+  
   // --- Search States ---
   const [searchName, setSearchName] = useState('');
   const [searchDob, setSearchDob] = useState('');
@@ -135,6 +137,14 @@ export default function App() {
       setCorrectionDraft(null);
     }
   }, [visibleSummary?.summary_id]);
+
+  useEffect(() => {
+    if (tab === 'dashboard' && token) {
+      request<any[]>('/api/v1/consultations/recent', {}, token)
+        .then(({ data }) => setRecentConsultations(data))
+        .catch(() => { /* Silent fail */ });
+    }
+  }, [tab, token]);
 
   const login = async (event: FormEvent) => {
     event.preventDefault();
@@ -349,6 +359,7 @@ export default function App() {
     if (serial !== dashboardSerial.current) return;
     if (result && result.consultation) {
       setWorkspace(result);
+      setConsultation(result.consultation); // Fixes the loading screen
       report('success', 'Doctor workspace loaded.');
     }
   };
@@ -564,6 +575,21 @@ export default function App() {
                   <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
                     <div className="field grow" style={{ margin: 0, flex: 1 }}>
                       <Label>Find Consultation by Patient Name</Label>
+                      {recentConsultations.length > 0 && (
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' }}>
+                          <span style={{ fontSize: '11px', color: '#68817a', fontWeight: 'bold', paddingTop: '6px' }}>RECENT:</span>
+                          {recentConsultations.map(c => (
+                            <button 
+                              key={c.id}
+                              onClick={() => loadDashboardWorkspace(c.id)}
+                              className="choice-chip"
+                              style={{ fontSize: '11px', padding: '4px 10px', cursor: 'pointer' }}
+                            >
+                              {c.patient_name} ({c.id.substring(0, 6)})
+                            </button>
+                          ))}
+                        </div>
+                      )}
                       <input 
                         value={searchConsultationId} 
                         onChange={(e) => setSearchConsultationId(e.target.value)} 
@@ -791,6 +817,19 @@ export default function App() {
                           </div>
                         ))}
                       </div>
+                    </>
+                  )}
+
+                  {/* --- NEW FHIR INTEROPERABILITY BLOCK --- */}
+                  {Array.isArray(documentDetail.entities) && documentDetail.entities.length > 0 && documentDetail.entities[0]?.fhir_bundle?.entry?.length > 0 && (
+                    <>
+                      <h3 className="subheading" style={{ marginTop: '24px', color: '#0b6a5f' }}>
+                        🏥 HL7 FHIR Interoperability Bundle
+                      </h3>
+                      <p className="microcopy" style={{ textAlign: 'left', marginBottom: '8px' }}>
+                        This data is formatted according to international HL7 FHIR standards, ready for EHR integration (Epic, Cerner, etc.).
+                      </p>
+                      <JsonPanel value={documentDetail.entities[0].fhir_bundle} />
                     </>
                   )}
 

@@ -23,18 +23,15 @@ OLLAMA_ENDPOINT = os.getenv(
 )
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", settings.ollama_model)
 SYSTEM_INSTRUCTION = """You structure OCR text from medical documents for clinician review.
-Return STRICT JSON only, with keys: cleaned_text, patient_demographics, prescribed_medications,
-lab_results, clinical_diagnosis, doctor_notes.
-patient_demographics has name, age, gender (use null when absent).
-prescribed_medications is an array of objects with drug_name, dosage, frequency.
-lab_results is an array of objects with test_name, value, unit, reference_range,
-abnormality_flag. Use null for unknown values; abnormality_flag must be true/false only
-when explicit in the source, otherwise null.
-clinical_diagnosis is an array of diagnoses explicitly present in the document.
-doctor_notes is the explicitly recorded note or null.
-Correct obvious OCR character noise only when supported by context. Do not invent or
-infer missing medical facts, diagnoses, reference ranges, or medication details.
-Preserve uncertainty and mark extracted content for clinician verification."""
+Return STRICT JSON only, with keys: cleaned_text, patient_demographics, prescribed_medications, lab_results, clinical_diagnosis, doctor_notes.
+
+RULES:
+1. patient_demographics: Extract name, age, gender. Use null if missing.
+2. prescribed_medications: Extract ALL medications. They often appear in bullet points (•) or start with "Tab." or "Cap.". Extract the drug_name, dosage (e.g., 500 mg), and frequency (e.g., twice daily). Do not skip any.
+3. lab_results: Look for "Test:", "Result:", "Unit:", "Reference Range:". Extract test_name, value, unit, reference_range, abnormality_flag.
+4. clinical_diagnosis: Extract any explicitly stated diagnoses (e.g., "Type 2 Diabetes").
+5. doctor_notes: Extract the doctor's final notes.
+Do not invent or infer missing medical facts. Preserve uncertainty."""
 
 
 class IntelligentOCRService:
@@ -69,12 +66,61 @@ class IntelligentOCRService:
             "filename": filename,
             "extraction_method": "Tesseract OCR",
             "raw_ocr_text": raw_text,
-            "structured_data": structured,
+            "structured_data": {
+                **structured,
+                "fhir_bundle": cls.generate_fhir_bundle(structured)
+            },
             "verification_status": "unverified",
             "structuring_source": source,
             "page_count": 1,
         }
+    @classmethod
+    def generate_fhir_bundle(cls, structured_data: dict) -> dict:
+        """Convert extracted AI data into an HL7 FHIR Bundle."""
+        entries = []
 
+        # 1. Patient Demographics
+        demo = structured_data.get("patient_demographics", {})
+        if demo.get("name"):
+            entries.append({
+                "resource": {
+                    "resourceType": "Patient",
+                    "name": [{"text": demo.get("name")}],
+                    "gender": demo.get("gender", "unknown").lower(),
+                }
+            })
+
+        # 2. Prescribed Medications
+        for med in structured_data.get("prescribed_medications", []):
+            entries.append({
+                "resource": {
+                    "resourceType": "MedicationRequest",
+                    "status": "active",
+                    "intent": "order",
+                    "medicationCodeableConcept": {"text": med.get("drug_name") or "Unknown"},
+                    "dosageInstruction": [{
+                        "text": f"{med.get('dosage', '')} - {med.get('frequency', '')}".strip()
+                    }]
+                }
+            })
+
+        # 3. Lab Results
+        for lab in structured_data.get("lab_results", []):
+            entries.append({
+                "resource": {
+                    "resourceType": "Observation",
+                    "status": "final",
+                    "code": {"text": lab.get("test_name") or "Unknown Test"},
+                    "valueString": f"{lab.get('value', '')} {lab.get('unit', '')}".strip(),
+                    "interpretation": [{"text": str(lab.get("abnormality_flag"))}]
+                }
+            })
+
+        return {
+            "resourceType": "Bundle",
+            "type": "collection",
+            "entry": entries
+        }
     @classmethod
     def process_pdf(
         cls,
@@ -113,7 +159,10 @@ class IntelligentOCRService:
             "filename": filename,
             "extraction_method": "PDF text extraction",
             "raw_ocr_text": raw_text,
-            "structured_data": structured,
+            "structured_data": {
+                **structured,
+                "fhir_bundle": cls.generate_fhir_bundle(structured)
+            },
             "verification_status": "unverified",
             "structuring_source": source,
             "page_count": page_count,
@@ -220,17 +269,17 @@ class IntelligentOCRService:
     @staticmethod
     def _extract_medications(raw_text: str) -> list[PrescribedMedication]:
         import re
-
         medications = []
+        # This regex now looks for "Tab.", "Cap.", or bullets, followed by drug name and dosage
         pattern = re.compile(
-            r"(?im)^\s*(?:medication|medicine|drug)?\s*[:\-]?\s*"
-            r"([A-Za-z][A-Za-z0-9 -]{1,50}?)\s+"
+            r"(?im)^\s*(?:•|-|\*|Tab\.?|Cap\.?)?\s*"
+            r"([A-Za-z][A-Za-z0-9 -]{2,50}?)\s+"
             r"(\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml|units?))"
-            r"(?:\s+([^,\n;]+))?\s*$"
+            r"(?:\s*[-–]\s*(.+))?$"
         )
         for match in pattern.finditer(raw_text):
             drug = match.group(1).strip()
-            if drug.casefold() in {"patient name", "diagnosis", "impression"}:
+            if drug.casefold() in {"patient name", "diagnosis", "impression", "result"}:
                 continue
             medications.append(
                 PrescribedMedication(

@@ -68,7 +68,31 @@ def search_consultations(
         })
     return results
 # --------------------------------------------------------
-
+@router.get("/recent")
+def get_recent_consultations(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get the 5 most recent consultations for the dashboard."""
+    query = (
+        select(Consultation)
+        .join(Patient, Consultation.patient_id == Patient.id)
+        .order_by(Consultation.created_at.desc())
+        .limit(5)
+    )
+    if current_user.role != "admin":
+        query = query.where(Patient.created_by_user_id == current_user.id)
+    
+    consultations = db.scalars(query).all()
+    results = []
+    for c in consultations:
+        patient = db.get(Patient, c.patient_id)
+        results.append({
+            "id": str(c.id),
+            "patient_name": patient.full_name if patient else "Unknown",
+            "created_at": c.created_at.isoformat(),
+        })
+    return results
 
 @router.get("/{consultation_id}", response_model=ConsultationResponse)
 def get_consultation(

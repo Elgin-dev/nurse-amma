@@ -171,3 +171,36 @@
   .patient-meta { flex-direction: column; gap: 2px; }
   .patient-meta span { border-right: none; padding: 0; }
 }
+/* Final EMR Polish */
+.patient-banner {
+  background: linear-gradient(to right, #ffffff, #f8fbf9) !important;
+  box-shadow: 0 4px 15px rgba(11, 59, 54, 0.05) !important;
+  border-left: 4px solid var(--green) !important;
+}
+
+.chart-card {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.02) !important;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.chart-card:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.06) !important;
+}
+
+.choice-chip {
+  background: white;
+  border: 1px solid #cbded5;
+  color: #245d53;
+  border-radius: 999px;
+  font-weight: 700;
+  transition: all 0.15s ease;
+}
+.choice-chip:hover {
+  background: #e0f2fe;
+  color: #0369a1;
+  border-color: #7dd3fc;
+}
+
+.dashboard-toolbar, section.card[style*="padding: 16px"] {
+  border-radius: 12px;
+  background: white;
+}
