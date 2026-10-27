@@ -14,7 +14,7 @@ from app.main import app
 from app.services import ocr_service
 from app.services import intelligent_ocr_service
 from app.services.intelligent_ocr_service import IntelligentOCRService
-
+from app.core.config import settings
 
 class FakeHTTPResponse:
     def __init__(self, data):
@@ -97,8 +97,8 @@ def test_intelligent_ocr_structures_ocr_text_with_ollama(monkeypatch):
     assert result["structured_data"]["lab_results"][0]["value"] == "10.2"
     assert result["structured_data"]["lab_results"][0]["unit"] == "g/dL"
     assert result["structured_data"]["lab_results"][0]["abnormality_flag"] is True
-    assert captured["url"] == "http://localhost:11434/api/chat"
-    assert captured["request"]["model"] == "gemma3:1b"
+    assert captured["url"] == settings.ollama_chat_url
+    assert captured["request"]["model"] == settings.ollama_model
     assert captured["request"]["format"] == "json"
     assert raw_text in captured["request"]["messages"][-1]["content"]
 
